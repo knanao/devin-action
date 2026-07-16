@@ -126,6 +126,32 @@ ruff check .
 pytest -q
 ```
 
-The Docker image is built directly from `Dockerfile` by GitHub Actions when the
-action is consumed (`runs.image: Dockerfile`), so no image publishing is
-required.
+The `Dockerfile` remains the source for local development and the Docker build
+in CI. Published versions of the action use the pre-built
+`ghcr.io/knanao/devin-action:v1` image, so consumers do not rebuild it on every
+run.
+
+## Releasing
+
+Releases are deliberate versioned events rather than a side effect of every
+merge to `main`. Publish a semantic version tag to build and push the image and
+create the matching GitHub Release with generated release notes:
+
+```sh
+git tag v1.2.3
+git push origin v1.2.3
+```
+
+The release workflow publishes the immutable version tag (`v1.2.3`), moving
+major tag (`v1`), and `latest` to
+`ghcr.io/knanao/devin-action`. The action descriptor follows the moving major
+tag so `knanao/devin-action@v1` and its container image advance together.
+
+The workflow can also be started manually with **Actions → Release → Run
+workflow** and an explicit `vMAJOR.MINOR.PATCH` version. The manual path creates
+the version tag at the selected branch or commit as part of creating the
+release.
+
+After the package is first published, set its visibility to **Public** in the
+package settings so GitHub Actions consumers can pull the image without
+authentication.
