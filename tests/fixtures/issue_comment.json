@@ -3,6 +3,7 @@
   "issue": {
     "number": 42,
     "title": "Something is broken",
+    "body": "Repro:\n1. run foo\n2. observe error",
     "html_url": "https://github.com/knanao/example/issues/42",
     "pull_request": null
   },

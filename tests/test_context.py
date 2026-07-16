@@ -27,6 +27,15 @@ class TestIssueComment:
         assert ctx.issue_or_pr_number == 42
         assert ctx.user_login == "knanao"
         assert ctx.user_prompt.startswith("please investigate")
+        assert ctx.title == "[GH] Something is broken"
+        assert "Repro:" in ctx.issue_body
+
+    def test_issue_body_empty_when_absent(self, load_fixture):
+        payload = load_fixture("issue_comment.json")
+        payload["issue"].pop("body", None)
+        ctx = _extract("issue_comment", payload)
+        assert not ctx.skip
+        assert ctx.issue_body == ""
 
     def test_skips_when_prefix_missing(self, load_fixture):
         payload = load_fixture("issue_comment.json")
