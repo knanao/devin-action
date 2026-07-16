@@ -12,9 +12,6 @@ inputs:
   devin-org-id:
     description: 'Devin organization id (org_*).'
     required: true
-  github-token:
-    description: 'GitHub token passed to Devin as $GITHUB_TOKEN session secret. Usually secrets.GITHUB_TOKEN or a PAT.'
-    required: true
   prompt-prefix:
     description: 'Comment trigger prefix.'
     required: false
@@ -43,14 +40,14 @@ inputs:
     description: 'Comma-separated list of author_association values allowed to trigger the action for issue/PR comments.'
     required: false
     default: 'OWNER,MEMBER,COLLABORATOR'
-  post-comment:
-    description: 'If true, post a tracking comment linking to the Devin session and instruct Devin to hide it on success.'
-    required: false
-    default: 'true'
   api-version:
     description: 'Devin API version to call. Only v1 or v3 are accepted.'
     required: false
     default: 'v3'
+  session-reuse:
+    description: 'Reuse an existing Devin session for the same PR/Issue thread when one is live. Users can force a fresh session with `/devin new <prompt>`.'
+    required: false
+    default: 'true'
 
 outputs:
   session-id:
@@ -59,6 +56,8 @@ outputs:
     description: 'Devin session URL (empty when skipped).'
   skipped:
     description: 'true when the action did not send a request to Devin.'
+  reused:
+    description: 'true when the action delivered the prompt to an existing session instead of creating a new one.'
 
 runs:
   using: 'docker'
@@ -66,7 +65,6 @@ runs:
   env:
     INPUT_DEVIN_API_KEY: ${{ inputs.devin-api-key }}
     INPUT_DEVIN_ORG_ID: ${{ inputs.devin-org-id }}
-    INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}
     INPUT_PROMPT_PREFIX: ${{ inputs.prompt-prefix }}
     INPUT_ADDITIONAL_INSTRUCTIONS: ${{ inputs.additional-instructions }}
     INPUT_DEVIN_MODE: ${{ inputs.devin-mode }}
@@ -74,5 +72,5 @@ runs:
     INPUT_TAGS: ${{ inputs.tags }}
     INPUT_PLAYBOOK_ID: ${{ inputs.playbook-id }}
     INPUT_ALLOWED_ASSOCIATIONS: ${{ inputs.allowed-associations }}
-    INPUT_POST_COMMENT: ${{ inputs.post-comment }}
     INPUT_API_VERSION: ${{ inputs.api-version }}
+    INPUT_SESSION_REUSE: ${{ inputs.session-reuse }}
