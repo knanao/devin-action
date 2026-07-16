@@ -48,6 +48,10 @@ inputs:
     description: 'Reuse an existing Devin session for the same PR/Issue thread when one is live. Users can force a fresh session with `/devin new <prompt>`.'
     required: false
     default: 'true'
+  report:
+    description: 'Post Devin-authored progress reports to the originating PR/Issue at natural task checkpoints.'
+    required: false
+    default: 'false'
 
 outputs:
   session-id:
@@ -74,3 +78,4 @@ runs:
     INPUT_ALLOWED_ASSOCIATIONS: ${{ inputs.allowed-associations }}
     INPUT_API_VERSION: ${{ inputs.api-version }}
     INPUT_SESSION_REUSE: ${{ inputs.session-reuse }}
+    INPUT_REPORT: ${{ inputs.report }}

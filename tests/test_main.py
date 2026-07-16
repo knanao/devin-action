@@ -161,6 +161,32 @@ def test_invalid_api_version_exits_1(env, monkeypatch):
 
 
 @responses.activate
+def test_report_input_injects_progress_block(env, monkeypatch):
+    monkeypatch.setenv("INPUT_REPORT", "true")
+    _stage_event(env["tmp_path"], monkeypatch, "issue_comment.json", "issue_comment")
+    responses.add(responses.GET, DEVIN_URL, json={"items": []}, status=200)
+    responses.add(
+        responses.POST,
+        DEVIN_URL,
+        json={"session_id": "sess_r", "url": "https://app.devin.ai/sessions/sess_r"},
+        status=200,
+    )
+
+    rc = main_mod.run()
+    assert rc == 0
+
+    create_call = next(
+        c for c in responses.calls
+        if c.request.method == "POST" and c.request.url.rstrip("/").endswith("/sessions")
+    )
+    payload = json.loads(create_call.request.body)
+    prompt = payload["prompt"]
+    assert "[Progress Reporting]" in prompt
+    assert "## 🤖 Devin progress report" in prompt
+    assert "devin-action:progress-report:pr=knanao/example#42" in prompt
+
+
+@responses.activate
 def test_push_event_creates_session(env, monkeypatch):
     _stage_event(env["tmp_path"], monkeypatch, "push.json", "push")
     responses.add(
