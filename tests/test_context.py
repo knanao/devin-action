@@ -75,6 +75,14 @@ class TestPullRequest:
         assert ctx.extra_context["pr_base_ref"] == "main"
         assert ctx.extra_context["pr_action"] == "opened"
         assert "Refactor auth" in ctx.user_prompt
+        assert ctx.issue_body == "This PR extracts the auth middleware."
+
+    def test_issue_body_empty_when_absent(self, load_fixture):
+        payload = load_fixture("pull_request.json")
+        payload["pull_request"].pop("body", None)
+        ctx = _extract("pull_request", payload)
+        assert not ctx.skip
+        assert ctx.issue_body == ""
 
 
 class TestReviewComment:

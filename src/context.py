@@ -188,6 +188,7 @@ def _from_pull_request(payload: dict[str, Any], repo: str) -> SessionContext:
         user_prompt=f"{title}\n\n{body}".strip(),
         extra_context=extra,
         thread_key=_thread_key(repo, number),
+        issue_body=body,
     )
 
 
