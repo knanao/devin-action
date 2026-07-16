@@ -1,0 +1,15 @@
+{
+  "action": "opened",
+  "pull_request": {
+    "number": 12,
+    "title": "Refactor auth",
+    "body": "This PR extracts the auth middleware.",
+    "html_url": "https://github.com/knanao/example/pull/12",
+    "diff_url": "https://github.com/knanao/example/pull/12.diff",
+    "head": {"sha": "abc123", "ref": "refactor/auth"},
+    "base": {"ref": "main"},
+    "user": {"login": "knanao"}
+  },
+  "repository": {"full_name": "knanao/example"},
+  "sender": {"login": "knanao"}
+}

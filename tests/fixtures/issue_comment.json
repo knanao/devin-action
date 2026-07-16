@@ -1,0 +1,18 @@
+{
+  "action": "created",
+  "issue": {
+    "number": 42,
+    "title": "Something is broken",
+    "html_url": "https://github.com/knanao/example/issues/42",
+    "pull_request": null
+  },
+  "comment": {
+    "id": 100,
+    "body": "/devin please investigate the flaky test in tests/foo.py",
+    "html_url": "https://github.com/knanao/example/issues/42#issuecomment-100",
+    "author_association": "OWNER",
+    "user": {"login": "knanao"}
+  },
+  "repository": {"full_name": "knanao/example"},
+  "sender": {"login": "knanao"}
+}

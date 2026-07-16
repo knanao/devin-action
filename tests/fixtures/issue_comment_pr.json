@@ -1,0 +1,18 @@
+{
+  "action": "created",
+  "issue": {
+    "number": 7,
+    "title": "Add caching",
+    "html_url": "https://github.com/knanao/example/pull/7",
+    "pull_request": {"url": "https://api.github.com/repos/knanao/example/pulls/7"}
+  },
+  "comment": {
+    "id": 200,
+    "body": "/devin  rebase this branch onto main",
+    "html_url": "https://github.com/knanao/example/pull/7#issuecomment-200",
+    "author_association": "MEMBER",
+    "user": {"login": "octocat"}
+  },
+  "repository": {"full_name": "knanao/example"},
+  "sender": {"login": "octocat"}
+}

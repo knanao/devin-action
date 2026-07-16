@@ -1,0 +1,12 @@
+{
+  "ref": "refs/heads/main",
+  "before": "aaa111",
+  "after": "bbb222",
+  "head_commit": {
+    "id": "bbb222",
+    "message": "Fix flaky test\n\nExtra detail line."
+  },
+  "pusher": {"name": "knanao"},
+  "repository": {"full_name": "knanao/example"},
+  "sender": {"login": "knanao"}
+}

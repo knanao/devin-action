@@ -1,0 +1,20 @@
+{
+  "action": "created",
+  "pull_request": {
+    "number": 12,
+    "title": "Refactor auth",
+    "html_url": "https://github.com/knanao/example/pull/12"
+  },
+  "comment": {
+    "id": 500,
+    "body": "/devin fix the null-check here",
+    "path": "src/auth/session.py",
+    "line": 42,
+    "commit_id": "abc123",
+    "html_url": "https://github.com/knanao/example/pull/12#discussion_r500",
+    "author_association": "COLLABORATOR",
+    "user": {"login": "reviewer"}
+  },
+  "repository": {"full_name": "knanao/example"},
+  "sender": {"login": "reviewer"}
+}

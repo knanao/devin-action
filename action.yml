@@ -1,0 +1,73 @@
+name: 'Devin Action'
+description: 'Start a Devin session from GitHub Actions events (issue_comment / pull_request / pull_request_review_comment / push / check_run).'
+author: 'knanao'
+branding:
+  icon: 'zap'
+  color: 'purple'
+
+inputs:
+  devin-api-key:
+    description: 'Devin service-user API key (cog_*).'
+    required: true
+  devin-org-id:
+    description: 'Devin organization id (org_*).'
+    required: true
+  github-token:
+    description: 'GitHub token passed to Devin as $GITHUB_TOKEN session secret. Usually secrets.GITHUB_TOKEN or a PAT.'
+    required: true
+  prompt-prefix:
+    description: 'Comment trigger prefix.'
+    required: false
+    default: '/devin'
+  additional-instructions:
+    description: 'Extra operator instructions always appended to the prompt.'
+    required: false
+    default: ''
+  devin-mode:
+    description: 'Devin execution mode: normal | fast | lite | ultra | fusion.'
+    required: false
+    default: 'normal'
+  max-acu-limit:
+    description: 'Optional integer ACU limit for the session.'
+    required: false
+    default: ''
+  tags:
+    description: 'Comma-separated tags attached to the session.'
+    required: false
+    default: 'github-action'
+  playbook-id:
+    description: 'Optional Devin playbook id.'
+    required: false
+    default: ''
+  allowed-associations:
+    description: 'Comma-separated list of author_association values allowed to trigger the action for issue/PR comments.'
+    required: false
+    default: 'OWNER,MEMBER,COLLABORATOR'
+  post-comment:
+    description: 'If true, post a tracking comment linking to the Devin session and instruct Devin to hide it on success.'
+    required: false
+    default: 'true'
+
+outputs:
+  session-id:
+    description: 'Devin session id (empty when skipped).'
+  session-url:
+    description: 'Devin session URL (empty when skipped).'
+  skipped:
+    description: 'true when the action did not send a request to Devin.'
+
+runs:
+  using: 'docker'
+  image: 'Dockerfile'
+  env:
+    INPUT_DEVIN_API_KEY: ${{ inputs.devin-api-key }}
+    INPUT_DEVIN_ORG_ID: ${{ inputs.devin-org-id }}
+    INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}
+    INPUT_PROMPT_PREFIX: ${{ inputs.prompt-prefix }}
+    INPUT_ADDITIONAL_INSTRUCTIONS: ${{ inputs.additional-instructions }}
+    INPUT_DEVIN_MODE: ${{ inputs.devin-mode }}
+    INPUT_MAX_ACU_LIMIT: ${{ inputs.max-acu-limit }}
+    INPUT_TAGS: ${{ inputs.tags }}
+    INPUT_PLAYBOOK_ID: ${{ inputs.playbook-id }}
+    INPUT_ALLOWED_ASSOCIATIONS: ${{ inputs.allowed-associations }}
+    INPUT_POST_COMMENT: ${{ inputs.post-comment }}

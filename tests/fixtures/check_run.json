@@ -1,0 +1,15 @@
+{
+  "action": "completed",
+  "check_run": {
+    "name": "unit-tests",
+    "status": "completed",
+    "conclusion": "failure",
+    "html_url": "https://github.com/knanao/example/runs/999",
+    "head_sha": "ccc333",
+    "pull_requests": [
+      {"number": 12}
+    ]
+  },
+  "repository": {"full_name": "knanao/example"},
+  "sender": {"login": "ci-bot"}
+}
