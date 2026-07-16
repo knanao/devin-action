@@ -160,6 +160,7 @@ def run() -> int:
                 f"must be one of {', '.join(SUPPORTED_API_VERSIONS)}",
             )
         session_reuse = _bool("session-reuse", True)
+        report = _bool("report", False)
     except InvalidInputError as exc:
         _error(exc.user_message())
         return 1
@@ -196,7 +197,9 @@ def run() -> int:
 
     try:
         if _should_try_reuse(ctx, session_reuse):
-            reused = _try_send_to_existing(client, ctx, additional_instructions)
+            reused = _try_send_to_existing(
+                client, ctx, additional_instructions, report=report
+            )
             if reused is not None:
                 session_id, session_url = reused
                 _log(
@@ -214,6 +217,7 @@ def run() -> int:
             devin_mode=devin_mode,
             max_acu_limit=max_acu_limit,
             playbook_id=playbook_id,
+            report=report,
         )
     except DevinAPIError as exc:
         _error(exc.user_message())
@@ -241,6 +245,8 @@ def _try_send_to_existing(
     client: DevinClient,
     ctx: context_mod.SessionContext,
     additional_instructions: str,
+    *,
+    report: bool,
 ) -> tuple[str, str] | None:
     """Look up a reusable session and, if found, send the follow-up message.
 
@@ -255,7 +261,7 @@ def _try_send_to_existing(
         return None
 
     message = prompt_mod.build_continuation(
-        ctx, additional_instructions=additional_instructions
+        ctx, additional_instructions=additional_instructions, report=report
     )
     try:
         client.send_message(session_id, message)
@@ -275,9 +281,10 @@ def _create_new_session(
     devin_mode: str,
     max_acu_limit: int | None,
     playbook_id: str | None,
+    report: bool,
 ) -> SessionResult:
     final_prompt = prompt_mod.build(
-        ctx, additional_instructions=additional_instructions
+        ctx, additional_instructions=additional_instructions, report=report
     )
     final_tags = list(tags)
     if ctx.thread_key:

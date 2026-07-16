@@ -151,6 +151,11 @@ class TestBuild:
         assert "ignore comments authored by bot accounts" in prompt
         assert "[bot]" in prompt
 
+    def test_discussion_instruction_carves_out_progress_reports(self):
+        prompt = prompt_mod.build(_ctx())
+        assert "devin-action:progress-report" in prompt
+        assert "## 🤖 Devin progress report" in prompt
+
 
 class TestBuildContinuation:
     def test_skips_operator_preamble_but_wraps_user_input(self):
@@ -221,3 +226,57 @@ class TestBuildContinuation:
         assert "fetch and read the full discussion thread" in prompt
         assert "ignore comments authored by bot accounts" in prompt
         assert "[bot]" in prompt
+
+    def test_discussion_instruction_carves_out_progress_reports(self):
+        prompt = prompt_mod.build_continuation(_ctx())
+        assert "devin-action:progress-report" in prompt
+        assert "## 🤖 Devin progress report" in prompt
+
+
+class TestProgressReporting:
+    def test_absent_when_report_false_on_build(self):
+        prompt = prompt_mod.build(_ctx())
+        assert "[Progress Reporting]" not in prompt
+
+    def test_absent_when_report_false_on_continuation(self):
+        prompt = prompt_mod.build_continuation(_ctx())
+        assert "[Progress Reporting]" not in prompt
+
+    def test_present_when_report_true_on_build(self):
+        prompt = prompt_mod.build(_ctx(), report=True)
+        assert "[Progress Reporting]" in prompt
+        assert "## 🤖 Devin progress report" in prompt
+        # Marker interpolates repo + PR number; session id is a placeholder
+        # for Devin to substitute at post time.
+        assert (
+            "<!-- devin-action:progress-report:pr=knanao/example#42"
+            ":session=<YOUR_SESSION_ID> -->"
+        ) in prompt
+
+    def test_present_when_report_true_on_continuation(self):
+        prompt = prompt_mod.build_continuation(_ctx(), report=True)
+        assert "[Progress Reporting]" in prompt
+        assert (
+            "<!-- devin-action:progress-report:pr=knanao/example#42"
+            ":session=<YOUR_SESSION_ID> -->"
+        ) in prompt
+
+    def test_absent_when_no_issue_or_pr_on_build(self):
+        # push / check_run without associated PR — nowhere to post reports.
+        ctx = _ctx(event_name="push", issue_or_pr_number=None, comment_url=None)
+        prompt = prompt_mod.build(ctx, report=True)
+        assert "[Progress Reporting]" not in prompt
+
+    def test_absent_when_no_issue_or_pr_on_continuation(self):
+        ctx = _ctx(event_name="push", issue_or_pr_number=None, comment_url=None)
+        prompt = prompt_mod.build_continuation(ctx, report=True)
+        assert "[Progress Reporting]" not in prompt
+
+    def test_carries_checklist_forward_across_sessions(self):
+        prompt = prompt_mod.build(_ctx(), report=True)
+        assert "carry the requirements checklist forward" in prompt
+        assert "Prior sessions" in prompt
+
+    def test_reports_session_scoped_metrics_only(self):
+        prompt = prompt_mod.build(_ctx(), report=True)
+        assert "Session-scoped metrics only" in prompt

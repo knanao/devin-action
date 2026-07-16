@@ -20,11 +20,11 @@ API — no GitHub token, PAT, or App credentials need to be supplied.
 - Recognizes `/devin <prompt>` from comments (prefix configurable).
 - Extracts a normalized context from each supported event and hands Devin a
   well-scoped prompt.
-- **Reuses the same Devin session per PR/Issue thread** so follow-up
-  `/devin` comments continue the ongoing conversation instead of restarting
-  from scratch. Falls back to a new session automatically if the previous
-  one has finished or errored. Force a fresh session with `/devin new
-  <prompt>`, or disable reuse entirely via `session-reuse: false`.
+- Reuses the same Devin session per PR/Issue thread on follow-up comments,
+  falling back to a fresh one when the previous session is gone. See
+  [Session reuse](#session-reuse).
+- Optionally asks Devin to post progress reports to the originating
+  PR/Issue at task checkpoints. See [Progress reports](#progress-reports).
 - Sanitizes untrusted user content and wraps it in a `<user_input>` block so
   comment bodies cannot override operator instructions.
 - Filters comment triggers by `author_association` (default:
@@ -69,6 +69,7 @@ in [`examples/devin.yml`](examples/devin.yml).
 | `allowed-associations` | no | `OWNER,MEMBER,COLLABORATOR` | Comma-separated `author_association` filter for issue/PR comment triggers. |
 | `api-version` | no | `v3` | Devin API version to call. Only `v1` or `v3` are accepted. |
 | `session-reuse` | no | `true` | Reuse an existing Devin session for the same PR/Issue thread when one is live. |
+| `report` | no | `false` | Ask Devin to post progress-report comments to the originating PR/Issue at natural task checkpoints. |
 
 ## Outputs
 
@@ -90,14 +91,40 @@ tag and, if found, sends the new prompt as a follow-up message via
 repository index, and conversation history — cheaper and more coherent than
 starting over.
 
-- **Force a new session**: send `/devin new <prompt>`. The `new`
-  keyword is stripped from the prompt before it reaches Devin.
-- **Disable reuse globally**: set `session-reuse: false` in the workflow.
-- **`push` and `check_run` triggers always create a new session** — they
-  are not tied to a thread.
-- Session lookup is done via Devin's list-sessions endpoint filtered by
-  the thread tag; **no GitHub token is required**. The `reused` output
-  tells the caller which path was taken.
+Session lookup uses Devin's list-sessions endpoint filtered by the thread
+tag, so **no GitHub token is required**; the `reused` output tells the
+caller which path was taken. `push` and `check_run` triggers always create
+a new session — they are not tied to a thread.
+
+- **Force a new session**: send `/devin new <prompt>`. The `new` keyword is
+  stripped from the prompt before it reaches Devin.
+- **Disable reuse globally**: set `session-reuse: false`.
+
+## Progress reports
+
+When `report: true`, the action instructs Devin to post progress-report
+comments to the originating PR/Issue via its GitHub App at natural
+checkpoints — after finishing a sub-task, after pushing a commit, when
+handing control back, or when all requested work is complete. Devin
+decides when to post; the action itself does no runtime polling and never
+posts comments directly.
+
+Each report follows a fixed template with a requirements checklist, a
+"what just changed" summary, next steps, and session info (elapsed time,
+ACU used, session URL). Each comment also carries a hidden marker
+`<!-- devin-action:progress-report:pr={owner}/{repo}#{n}:session={id} -->`
+so future sessions can locate their predecessors.
+
+**Multi-session PRs**: a single PR can span multiple Devin sessions
+(previous session completed or errored, `session-reuse: false`, or
+`/devin new`). Each session posts its own reports. Session-scoped metrics
+(elapsed time, ACU) reset per session — cumulative values across sessions
+are not tracked. The requirements checklist is carried forward: the new
+session scans the thread for prior reports and continues from them
+rather than restarting.
+
+Requires the Devin GitHub App to have write access to issues/PRs in the
+repository (it already does if Devin can open PRs there).
 
 ## Prompt safety
 
@@ -112,9 +139,9 @@ is treated as **data**, not instructions:
 - The prompt template explicitly tells Devin that content inside
   `<user_input>` is untrusted data.
 
-Combined with the `allowed-associations` filter, this blocks the common
-"external contributor commented `/devin` with adversarial instructions" class of
-attack. Configure this input to your project's threat model.
+Combined with `allowed-associations`, this mitigates the common
+"external contributor injects adversarial `/devin` instructions" attack.
+Tune `allowed-associations` to your project's threat model.
 
 ## Development
 
