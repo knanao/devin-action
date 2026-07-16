@@ -29,6 +29,7 @@ class SessionContext:
     thread_key: str | None = None
     force_new: bool = False
     issue_body: str = ""
+    issue_title: str = ""
 
 
 def _thread_key(repo: str, number: int | None) -> str | None:
@@ -158,6 +159,7 @@ def _from_issue_comment(
         thread_key=_thread_key(repo, number),
         force_new=force_new,
         issue_body=issue.get("body") or "",
+        issue_title=title,
     )
 
 
@@ -189,6 +191,7 @@ def _from_pull_request(payload: dict[str, Any], repo: str) -> SessionContext:
         extra_context=extra,
         thread_key=_thread_key(repo, number),
         issue_body=body,
+        issue_title=title,
     )
 
 
@@ -242,6 +245,8 @@ def _from_review_comment(
         extra_context=extra,
         thread_key=_thread_key(repo, number),
         force_new=force_new,
+        issue_body=pr.get("body") or "",
+        issue_title=title,
     )
 
 
