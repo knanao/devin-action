@@ -145,6 +145,12 @@ class TestBuild:
         assert "</issue>" not in body
         assert "<\\/issue>" in body
 
+    def test_discussion_instruction_included(self):
+        prompt = prompt_mod.build(_ctx())
+        assert "fetch and read the full discussion thread" in prompt
+        assert "ignore comments authored by bot accounts" in prompt
+        assert "[bot]" in prompt
+
 
 class TestBuildContinuation:
     def test_skips_operator_preamble_but_wraps_user_input(self):
@@ -209,3 +215,9 @@ class TestBuildContinuation:
         body = prompt[start:end]
         assert "</issue>" not in body
         assert "<\\/issue>" in body
+
+    def test_discussion_instruction_included(self):
+        prompt = prompt_mod.build_continuation(_ctx())
+        assert "fetch and read the full discussion thread" in prompt
+        assert "ignore comments authored by bot accounts" in prompt
+        assert "[bot]" in prompt
