@@ -12,6 +12,7 @@ from src.devin_client import DEFAULT_BASE_URL
 
 FIXTURES = Path(__file__).parent / "fixtures"
 DEVIN_URL = f"{DEFAULT_BASE_URL}/v3/organizations/org-test/sessions"
+DEVIN_URL_V1 = f"{DEFAULT_BASE_URL}/v1/sessions"
 GH_COMMENT_URL = "https://api.github.com/repos/knanao/example/issues/42/comments"
 
 
@@ -163,6 +164,30 @@ def test_post_comment_false_disables_tracking_comment_and_cleanup(env, monkeypat
     assert "devin-action:tracker=" not in payload["prompt"]
     # Only Devin was called, no GitHub comment.
     assert all("api.github.com" not in c.request.url for c in responses.calls)
+
+
+@responses.activate
+def test_api_version_v1_hits_v1_endpoint(env, monkeypatch):
+    monkeypatch.setenv("INPUT_API_VERSION", "v1")
+    monkeypatch.setenv("INPUT_POST_COMMENT", "false")
+    _stage_event(env["tmp_path"], monkeypatch, "issue_comment.json", "issue_comment")
+    responses.add(
+        responses.POST,
+        DEVIN_URL_V1,
+        json={"session_id": "sess_v1", "url": "https://app.devin.ai/sessions/sess_v1"},
+        status=200,
+    )
+
+    rc = main_mod.run()
+    assert rc == 0
+    assert responses.calls[0].request.url == DEVIN_URL_V1
+
+
+def test_invalid_api_version_exits_1(env, monkeypatch):
+    monkeypatch.setenv("INPUT_API_VERSION", "v2")
+    _stage_event(env["tmp_path"], monkeypatch, "issue_comment.json", "issue_comment")
+    rc = main_mod.run()
+    assert rc == 1
 
 
 @responses.activate

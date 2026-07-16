@@ -11,7 +11,12 @@ from typing import Any
 
 from . import context as context_mod
 from . import prompt as prompt_mod
-from .devin_client import DevinClient, SessionResult
+from .devin_client import (
+    DEFAULT_API_VERSION,
+    SUPPORTED_API_VERSIONS,
+    DevinClient,
+    SessionResult,
+)
 from .errors import (
     DevinActionError,
     DevinAPIError,
@@ -151,6 +156,12 @@ def run() -> int:
             "allowed-associations", "OWNER,MEMBER,COLLABORATOR"
         )
         post_comment = _bool("post-comment", True)
+        api_version = _optional("api-version", DEFAULT_API_VERSION)
+        if api_version not in SUPPORTED_API_VERSIONS:
+            raise InvalidInputError(
+                "api-version",
+                f"must be one of {', '.join(SUPPORTED_API_VERSIONS)}",
+            )
     except InvalidInputError as exc:
         _error(exc.user_message())
         return 1
@@ -193,7 +204,7 @@ def run() -> int:
         tracker_id=tracker_id,
     )
 
-    client = DevinClient(api_key, org_id)
+    client = DevinClient(api_key, org_id, api_version=api_version)
     try:
         result: SessionResult = client.create_session(
             prompt=final_prompt,

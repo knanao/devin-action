@@ -16,10 +16,29 @@ from src.errors import (
 ORG = "org-test"
 API_KEY = "cog_test"
 URL = f"{DEFAULT_BASE_URL}/v3/organizations/{ORG}/sessions"
+URL_V1 = f"{DEFAULT_BASE_URL}/v1/sessions"
 
 
-def _make_client() -> DevinClient:
-    return DevinClient(API_KEY, ORG)
+def _make_client(api_version: str = "v3") -> DevinClient:
+    return DevinClient(API_KEY, ORG, api_version=api_version)
+
+
+def test_rejects_unsupported_api_version():
+    with pytest.raises(ValueError):
+        DevinClient(API_KEY, ORG, api_version="v2")
+
+
+@responses.activate
+def test_v1_uses_org_less_endpoint():
+    responses.add(
+        responses.POST,
+        URL_V1,
+        json={"session_id": "sess_v1", "url": "https://app.devin.ai/sessions/sess_v1"},
+        status=200,
+    )
+    result = _call(_make_client("v1"))
+    assert result.session_id == "sess_v1"
+    assert responses.calls[0].request.url == URL_V1
 
 
 def _call(client: DevinClient):

@@ -1,4 +1,4 @@
-"""Thin Devin API V3 client used by the action."""
+"""Thin Devin API client used by the action. Supports v1 and v3."""
 
 from __future__ import annotations
 
@@ -20,6 +20,8 @@ from .errors import (
 )
 
 DEFAULT_BASE_URL = "https://api.devin.ai"
+DEFAULT_API_VERSION = "v3"
+SUPPORTED_API_VERSIONS = ("v1", "v3")
 CONNECT_TIMEOUT = 10
 READ_TIMEOUT = 30
 RETRY_STATUS = (429, 500, 502, 503, 504)
@@ -55,12 +57,24 @@ class DevinClient:
         org_id: str,
         *,
         base_url: str = DEFAULT_BASE_URL,
+        api_version: str = DEFAULT_API_VERSION,
         session: requests.Session | None = None,
     ) -> None:
+        if api_version not in SUPPORTED_API_VERSIONS:
+            raise ValueError(
+                f"unsupported api_version {api_version!r}; "
+                f"expected one of {SUPPORTED_API_VERSIONS}"
+            )
         self._api_key = api_key
         self._org_id = org_id
         self._base_url = base_url.rstrip("/")
+        self._api_version = api_version
         self._session = session or _build_session()
+
+    def _sessions_url(self) -> str:
+        if self._api_version == "v1":
+            return f"{self._base_url}/v1/sessions"
+        return f"{self._base_url}/v3/organizations/{self._org_id}/sessions"
 
     def create_session(
         self,
@@ -74,7 +88,7 @@ class DevinClient:
         max_acu_limit: int | None,
         playbook_id: str | None,
     ) -> SessionResult:
-        url = f"{self._base_url}/v3/organizations/{self._org_id}/sessions"
+        url = self._sessions_url()
         headers = {
             "Authorization": f"Bearer {self._api_key}",
             "Content-Type": "application/json",
