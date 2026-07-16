@@ -280,3 +280,9 @@ class TestProgressReporting:
     def test_reports_session_scoped_metrics_only(self):
         prompt = prompt_mod.build(_ctx(), report=True)
         assert "Session-scoped metrics only" in prompt
+
+    def test_minimizes_earlier_reports_from_same_session(self):
+        prompt = prompt_mod.build(_ctx(), report=True)
+        assert "minimizeComment" in prompt
+        assert "classifier: OUTDATED" in prompt
+        assert "session=<YOUR_SESSION_ID>" in prompt
