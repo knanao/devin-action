@@ -3,6 +3,7 @@
   "pull_request": {
     "number": 12,
     "title": "Refactor auth",
+    "body": "This PR extracts the auth middleware.",
     "html_url": "https://github.com/knanao/example/pull/12"
   },
   "comment": {

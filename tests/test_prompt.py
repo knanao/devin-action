@@ -180,6 +180,20 @@ class TestBuildContinuation:
         assert "Title: Something is broken" in prompt
         assert "Repro:" in prompt
 
+    def test_issue_title_distinct_from_session_title(self):
+        ctx = _ctx(
+            title="[GH] Review comment on Refactor auth",
+            issue_title="Refactor auth",
+            issue_body="This PR extracts the auth middleware.",
+        )
+        prompt = prompt_mod.build_continuation(ctx)
+        opener = "\n<issue>\n"
+        start = prompt.index(opener) + len(opener)
+        end = prompt.index("\n</issue>", start)
+        block = prompt[start:end]
+        assert "Title: Refactor auth" in block
+        assert "Review comment on" not in block
+
     def test_issue_block_absent_when_no_title_or_body(self):
         ctx = _ctx(title="", issue_body="")
         prompt = prompt_mod.build_continuation(ctx)

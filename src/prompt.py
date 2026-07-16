@@ -96,7 +96,7 @@ def _issue_block(context: SessionContext) -> str | None:
 
     Returns None when both are empty (e.g. push / check_run events).
     """
-    title = (context.title or "").strip()
+    title = (context.issue_title or context.title or "").strip()
     if title.startswith("[GH] "):
         title = title[len("[GH] "):]
     body = (context.issue_body or "").strip()

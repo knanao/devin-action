@@ -93,6 +93,15 @@ class TestReviewComment:
         assert ctx.issue_or_pr_number == 12
         assert ctx.extra_context["file_path"] == "src/auth/session.py"
         assert ctx.extra_context["line"] == "42"
+        assert ctx.issue_title == "Refactor auth"
+        assert ctx.issue_body == "This PR extracts the auth middleware."
+
+    def test_issue_body_empty_when_absent(self, load_fixture):
+        payload = load_fixture("pull_request_review_comment.json")
+        payload["pull_request"].pop("body", None)
+        ctx = _extract("pull_request_review_comment", payload)
+        assert not ctx.skip
+        assert ctx.issue_body == ""
 
     def test_skip_when_prefix_missing(self, load_fixture):
         payload = load_fixture("pull_request_review_comment.json")

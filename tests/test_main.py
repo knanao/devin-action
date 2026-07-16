@@ -226,6 +226,13 @@ class TestSessionReuse:
         assert not any(
             m == "POST" and url.rstrip("/").endswith("/sessions") for m, url in methods
         )
+        message_call = next(
+            c for c in responses.calls if c.request.method == "POST" and message_url in c.request.url
+        )
+        message = json.loads(message_call.request.body)["message"]
+        assert "<issue>" in message
+        assert "Title: Something is broken" in message
+        assert "Repro:" in message
 
     @responses.activate
     def test_falls_back_to_create_when_no_live_session(self, env, monkeypatch):
