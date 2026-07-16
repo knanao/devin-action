@@ -47,6 +47,10 @@ inputs:
     description: 'If true, post a tracking comment linking to the Devin session and instruct Devin to hide it on success.'
     required: false
     default: 'true'
+  api-version:
+    description: 'Devin API version to call. Only v1 or v3 are accepted.'
+    required: false
+    default: 'v3'
 
 outputs:
   session-id:
@@ -71,3 +75,4 @@ runs:
     INPUT_PLAYBOOK_ID: ${{ inputs.playbook-id }}
     INPUT_ALLOWED_ASSOCIATIONS: ${{ inputs.allowed-associations }}
     INPUT_POST_COMMENT: ${{ inputs.post-comment }}
+    INPUT_API_VERSION: ${{ inputs.api-version }}

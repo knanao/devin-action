@@ -2,7 +2,7 @@
 
 Custom GitHub Action that starts a [Devin](https://devin.ai/) session from
 `issue_comment`, `pull_request`, `pull_request_review_comment`, `push`, and
-`check_run` events using the Devin API V3.
+`check_run` events using the Devin API.
 
 Give your team the same behavior as Devin's built-in GitHub Automation, but with
 triggers and conditions you control from your own workflow file.
@@ -46,7 +46,7 @@ jobs:
 ```
 
 A more complete example covering PRs, review comments, and failing checks lives
-in [`.github/workflows/example.yml`](.github/workflows/example.yml).
+in [`examples/devin.yml`](examples/devin.yml).
 
 ## Inputs
 
@@ -63,6 +63,7 @@ in [`.github/workflows/example.yml`](.github/workflows/example.yml).
 | `playbook-id` | no | — | Optional Devin playbook id. |
 | `allowed-associations` | no | `OWNER,MEMBER,COLLABORATOR` | Comma-separated `author_association` filter for issue/PR comment triggers. |
 | `post-comment` | no | `true` | Post a tracking comment on the Issue/PR and ask Devin to hide it on success. |
+| `api-version` | no | `v3` | Devin API version to call. Only `v1` or `v3` are accepted. |
 
 ## Outputs
 
