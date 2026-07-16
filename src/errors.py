@@ -80,3 +80,18 @@ class DevinNetworkError(DevinAPIError):
     def __init__(self, reason: str) -> None:
         super().__init__(f"Failed to reach Devin API: {reason}")
         self.reason = reason
+
+
+class DevinSessionGoneError(DevinAPIError):
+    """The target session no longer accepts messages (terminal state or 404).
+
+    Callers should treat this as a signal to fall back to creating a new
+    session rather than surfacing a hard failure.
+    """
+
+    def __init__(self, session_id: str, reason: str) -> None:
+        super().__init__(
+            f"Session {session_id} is no longer accepting messages: {reason}"
+        )
+        self.session_id = session_id
+        self.reason = reason

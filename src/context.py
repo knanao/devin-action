@@ -26,6 +26,14 @@ class SessionContext:
     extra_context: dict[str, str] = field(default_factory=dict)
     skip: bool = False
     skip_reason: str | None = None
+    thread_key: str | None = None
+    force_new: bool = False
+
+
+def _thread_key(repo: str, number: int | None) -> str | None:
+    if number is None:
+        return None
+    return f"{repo}#{number}"
 
 
 def _skipped(event_name: str, repo: str, reason: str) -> SessionContext:
@@ -40,6 +48,23 @@ def _skipped(event_name: str, repo: str, reason: str) -> SessionContext:
         skip=True,
         skip_reason=reason,
     )
+
+
+def _split_force_new(prompt_body: str) -> tuple[str, bool]:
+    """Strip a leading `new` subcommand.
+
+    `/devin new fix this` → ("fix this", True). Requires a space or newline
+    after `new` so words like `newsletter` are left intact.
+    """
+    if not prompt_body:
+        return prompt_body, False
+    lowered = prompt_body.lower()
+    if not lowered.startswith("new"):
+        return prompt_body, False
+    after = prompt_body[3:]
+    if after and not after[0].isspace():
+        return prompt_body, False
+    return after.lstrip(), True
 
 
 def _match_prefix(body: str, prefix: str) -> str | None:
@@ -111,6 +136,8 @@ def _from_issue_comment(
             f"author_association {comment.get('author_association')!r} not allowed",
         )
 
+    prompt_body, force_new = _split_force_new(prompt_body)
+
     number = issue.get("number")
     user_login = (comment.get("user") or {}).get("login", "")
     title = issue.get("title") or f"Issue #{number}"
@@ -127,6 +154,8 @@ def _from_issue_comment(
         user_login=user_login,
         user_prompt=prompt_body,
         extra_context=extra,
+        thread_key=_thread_key(repo, number),
+        force_new=force_new,
     )
 
 
@@ -156,6 +185,7 @@ def _from_pull_request(payload: dict[str, Any], repo: str) -> SessionContext:
         user_login=user_login,
         user_prompt=f"{title}\n\n{body}".strip(),
         extra_context=extra,
+        thread_key=_thread_key(repo, number),
     )
 
 
@@ -184,6 +214,8 @@ def _from_review_comment(
             f"author_association {comment.get('author_association')!r} not allowed",
         )
 
+    prompt_body, force_new = _split_force_new(prompt_body)
+
     number = pr.get("number")
     user_login = (comment.get("user") or {}).get("login", "")
     title = pr.get("title") or f"PR #{number}"
@@ -205,6 +237,8 @@ def _from_review_comment(
         user_login=user_login,
         user_prompt=prompt_body,
         extra_context=extra,
+        thread_key=_thread_key(repo, number),
+        force_new=force_new,
     )
 
 

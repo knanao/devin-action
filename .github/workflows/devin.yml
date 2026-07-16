@@ -15,15 +15,10 @@ jobs:
       (github.event_name == 'pull_request_review_comment' && startsWith(github.event.comment.body, '/devin')) ||
       (github.event_name == 'pull_request')
     runs-on: ubuntu-latest
-    permissions:
-      issues: write
-      pull-requests: write
-      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: ./
         with:
           devin-api-key: ${{ secrets.DEVIN_API_KEY }}
           devin-org-id:  ${{ secrets.DEVIN_ORG_ID }}
-          github-token:  ${{ secrets.GITHUB_TOKEN }}
           api-version: v1

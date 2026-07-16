@@ -11,6 +11,7 @@ from typing import Any
 
 from . import context as context_mod
 from . import prompt as prompt_mod
+from . import resolver as resolver_mod
 from .devin_client import (
     DEFAULT_API_VERSION,
     SUPPORTED_API_VERSIONS,
@@ -20,13 +21,9 @@ from .devin_client import (
 from .errors import (
     DevinActionError,
     DevinAPIError,
+    DevinSessionGoneError,
     InvalidInputError,
     MissingInputError,
-)
-from .github_client import (
-    GitHubClient,
-    build_failure_comment,
-    build_tracking_comment,
 )
 
 
@@ -61,11 +58,11 @@ def _optional(name: str, default: str = "") -> str:
 
 def _bool(name: str, default: bool) -> bool:
     raw = _optional(name, "").lower()
-    if raw == "":
+    if not raw:
         return default
-    if raw in {"true", "1", "yes", "y"}:
+    if raw in {"true", "1", "yes", "on"}:
         return True
-    if raw in {"false", "0", "no", "n"}:
+    if raw in {"false", "0", "no", "off"}:
         return False
     raise InvalidInputError(name, "must be a boolean (true/false)")
 
@@ -114,36 +111,37 @@ def _write_outputs(**outputs: str) -> None:
 
 def _emit_skip(reason: str) -> int:
     _log(f"Skipping: {reason}")
-    _write_outputs(**{"session-id": "", "session-url": "", "skipped": "true"})
+    _write_outputs(
+        **{
+            "session-id": "",
+            "session-url": "",
+            "skipped": "true",
+            "reused": "false",
+        }
+    )
     return 0
 
 
-def _post_failure_comment(
-    github_token: str,
-    repo: str,
-    number: int | None,
-    message: str,
-) -> None:
-    if number is None:
-        return
-    try:
-        client = GitHubClient(github_token)
-        client.post_issue_comment(repo, number, build_failure_comment(message))
-    except Exception as exc:  # noqa: BLE001 — best-effort notification
-        _log(f"Failed to post failure comment: {exc}")
+def _emit_success(*, session_id: str, url: str, reused: bool) -> None:
+    _write_outputs(
+        **{
+            "session-id": session_id,
+            "session-url": url,
+            "skipped": "false",
+            "reused": "true" if reused else "false",
+        }
+    )
 
 
 def run() -> int:
     try:
         api_key = _required("devin-api-key")
         org_id = _required("devin-org-id")
-        github_token = _required("github-token")
     except MissingInputError as exc:
         _error(exc.user_message())
         return 1
 
     _mask(api_key)
-    _mask(github_token)
 
     try:
         prompt_prefix = _optional("prompt-prefix", "/devin")
@@ -155,13 +153,13 @@ def run() -> int:
         allowed_associations = _list(
             "allowed-associations", "OWNER,MEMBER,COLLABORATOR"
         )
-        post_comment = _bool("post-comment", True)
         api_version = _optional("api-version", DEFAULT_API_VERSION)
         if api_version not in SUPPORTED_API_VERSIONS:
             raise InvalidInputError(
                 "api-version",
                 f"must be one of {', '.join(SUPPORTED_API_VERSIONS)}",
             )
+        session_reuse = _bool("session-reuse", True)
     except InvalidInputError as exc:
         _error(exc.user_message())
         return 1
@@ -194,23 +192,24 @@ def run() -> int:
     if ctx.skip:
         return _emit_skip(ctx.skip_reason or "context extractor requested skip")
 
-    tracker_id: str | None = None
-    if post_comment and ctx.issue_or_pr_number is not None:
-        tracker_id = str(uuid.uuid4())
-
-    final_prompt = prompt_mod.build(
-        ctx,
-        additional_instructions=additional_instructions,
-        tracker_id=tracker_id,
-    )
-
     client = DevinClient(api_key, org_id, api_version=api_version)
+
     try:
-        result: SessionResult = client.create_session(
-            prompt=final_prompt,
-            repo=repo,
-            github_token=github_token,
-            title=ctx.title or repo,
+        if _should_try_reuse(ctx, session_reuse):
+            reused = _try_send_to_existing(client, ctx, additional_instructions)
+            if reused is not None:
+                session_id, session_url = reused
+                _log(
+                    f"Devin session reused: {session_id}"
+                    + (f" ({session_url})" if session_url else "")
+                )
+                _emit_success(session_id=session_id, url=session_url, reused=True)
+                return 0
+
+        result = _create_new_session(
+            client,
+            ctx,
+            additional_instructions=additional_instructions,
             tags=tags,
             devin_mode=devin_mode,
             max_acu_limit=max_acu_limit,
@@ -218,36 +217,86 @@ def run() -> int:
         )
     except DevinAPIError as exc:
         _error(exc.user_message())
-        if post_comment:
-            _post_failure_comment(
-                github_token, repo, ctx.issue_or_pr_number, exc.user_message()
-            )
         return 1
     except DevinActionError as exc:
         _error(exc.user_message())
         return 1
 
     _log(f"Devin session created: {result.session_id} ({result.url})")
-
-    if post_comment and ctx.issue_or_pr_number is not None and tracker_id is not None:
-        try:
-            gh = GitHubClient(github_token)
-            gh.post_issue_comment(
-                repo,
-                ctx.issue_or_pr_number,
-                build_tracking_comment(result.url, tracker_id),
-            )
-        except Exception as exc:  # noqa: BLE001 — non-fatal
-            _log(f"Failed to post tracking comment: {exc}")
-
-    _write_outputs(
-        **{
-            "session-id": result.session_id,
-            "session-url": result.url,
-            "skipped": "false",
-        }
-    )
+    _emit_success(session_id=result.session_id, url=result.url, reused=False)
     return 0
+
+
+def _should_try_reuse(
+    ctx: context_mod.SessionContext, session_reuse_enabled: bool
+) -> bool:
+    if not session_reuse_enabled:
+        return False
+    if ctx.force_new:
+        return False
+    return bool(ctx.thread_key)
+
+
+def _try_send_to_existing(
+    client: DevinClient,
+    ctx: context_mod.SessionContext,
+    additional_instructions: str,
+) -> tuple[str, str] | None:
+    """Look up a reusable session and, if found, send the follow-up message.
+
+    Returns (session_id, session_url) on success, or None when we should fall
+    back to creating a new session. Session URL is best-effort: the Devin
+    message endpoint does not return it on v1, so callers may see an empty
+    string when the reused session was originally opened via v1.
+    """
+    assert ctx.thread_key is not None  # guarded by _should_try_reuse
+    session_id = resolver_mod.find_reusable_session(client, ctx.thread_key)
+    if not session_id:
+        return None
+
+    message = prompt_mod.build_continuation(
+        ctx, additional_instructions=additional_instructions
+    )
+    try:
+        client.send_message(session_id, message)
+    except DevinSessionGoneError as exc:
+        _log(f"Reusable session {session_id} rejected message ({exc.reason}); creating new.")
+        return None
+
+    return session_id, _session_url_for(session_id)
+
+
+def _create_new_session(
+    client: DevinClient,
+    ctx: context_mod.SessionContext,
+    *,
+    additional_instructions: str,
+    tags: list[str],
+    devin_mode: str,
+    max_acu_limit: int | None,
+    playbook_id: str | None,
+) -> SessionResult:
+    final_prompt = prompt_mod.build(
+        ctx, additional_instructions=additional_instructions
+    )
+    final_tags = list(tags)
+    if ctx.thread_key:
+        thread_tag = resolver_mod.thread_tag(ctx.thread_key)
+        if thread_tag not in final_tags:
+            final_tags.append(thread_tag)
+    return client.create_session(
+        prompt=final_prompt,
+        repo=ctx.repo,
+        title=ctx.title or ctx.repo,
+        tags=final_tags,
+        devin_mode=devin_mode,
+        max_acu_limit=max_acu_limit,
+        playbook_id=playbook_id,
+    )
+
+
+def _session_url_for(session_id: str) -> str:
+    return f"https://app.devin.ai/sessions/{session_id}"
 
 
 def main() -> None:

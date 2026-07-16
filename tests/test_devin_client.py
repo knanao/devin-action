@@ -3,13 +3,14 @@ from __future__ import annotations
 import pytest
 import responses
 
-from src.devin_client import DEFAULT_BASE_URL, DevinClient
+from src.devin_client import DEFAULT_BASE_URL, DevinClient, SessionSummary
 from src.errors import (
     DevinAuthError,
     DevinNotFoundError,
     DevinPermissionError,
     DevinRateLimitError,
     DevinServerError,
+    DevinSessionGoneError,
     DevinValidationError,
 )
 
@@ -17,6 +18,8 @@ ORG = "org-test"
 API_KEY = "cog_test"
 URL = f"{DEFAULT_BASE_URL}/v3/organizations/{ORG}/sessions"
 URL_V1 = f"{DEFAULT_BASE_URL}/v1/sessions"
+MESSAGE_URL = f"{DEFAULT_BASE_URL}/v3/organizations/{ORG}/sessions/devin-abc/messages"
+MESSAGE_URL_V1 = f"{DEFAULT_BASE_URL}/v1/sessions/devin-abc/message"
 
 
 def _make_client(api_version: str = "v3") -> DevinClient:
@@ -45,7 +48,6 @@ def _call(client: DevinClient):
     return client.create_session(
         prompt="hi",
         repo="knanao/example",
-        github_token="ghs_xxx",
         title="test",
         tags=["github-action"],
         devin_mode="normal",
@@ -92,7 +94,6 @@ def test_sends_expected_payload():
     client.create_session(
         prompt="P",
         repo="owner/repo",
-        github_token="ghs_secret",
         title="T",
         tags=["a", "b"],
         devin_mode="fast",
@@ -112,10 +113,7 @@ def test_sends_expected_payload():
     assert payload["playbook_id"] == "pb_1"
     assert payload["title"] == "T"
     assert payload["tags"] == ["a", "b"]
-    secret = payload["session_secrets"][0]
-    assert secret["key"] == "GITHUB_TOKEN"
-    assert secret["value"] == "ghs_secret"
-    assert secret["sensitive"] is True
+    assert "session_secrets" not in payload
     assert call.request.headers["Authorization"] == f"Bearer {API_KEY}"
 
 
@@ -191,3 +189,148 @@ def test_missing_session_id_in_2xx_is_server_error():
     responses.add(responses.POST, URL, json={"unrelated": True}, status=200)
     with pytest.raises(DevinServerError):
         _call(_make_client())
+
+
+class TestListSessions:
+    @responses.activate
+    def test_v3_returns_normalized_summaries(self):
+        responses.add(
+            responses.GET,
+            URL,
+            json={
+                "items": [
+                    {
+                        "session_id": "devin-1",
+                        "tags": ["devin-action:thread:knanao/example#42", "github-action"],
+                        "status": "running",
+                        "status_detail": "working",
+                        "updated_at": 1_700_000_100,
+                    },
+                    {
+                        "session_id": "devin-2",
+                        "tags": ["devin-action:thread:knanao/example#42"],
+                        "status": "exit",
+                        "status_detail": "finished",
+                        "updated_at": 1_700_000_050,
+                    },
+                ]
+            },
+            status=200,
+        )
+        client = _make_client()
+        summaries = client.list_sessions(
+            tags=["devin-action:thread:knanao/example#42"]
+        )
+        assert [s.session_id for s in summaries] == ["devin-1", "devin-2"]
+        # tag filter propagated as query
+        req_url = responses.calls[0].request.url
+        assert "tags=devin-action%3Athread%3Aknanao%2Fexample%2342" in req_url
+        assert "is_archived=false" in req_url
+
+    @responses.activate
+    def test_v1_uses_v1_shape(self):
+        responses.add(
+            responses.GET,
+            URL_V1,
+            json={
+                "sessions": [
+                    {
+                        "session_id": "sess_1",
+                        "status": "working",
+                        "status_enum": "working",
+                        "tags": ["devin-action:thread:knanao/example#42"],
+                        "updated_at": "2025-01-02T03:04:05Z",
+                    }
+                ]
+            },
+            status=200,
+        )
+        client = _make_client("v1")
+        summaries = client.list_sessions(
+            tags=["devin-action:thread:knanao/example#42"]
+        )
+        assert summaries[0].session_id == "sess_1"
+        assert summaries[0].status == "working"
+        assert summaries[0].updated_ts > 0
+
+    @responses.activate
+    def test_error_propagates(self):
+        responses.add(responses.GET, URL, json={"detail": "denied"}, status=403)
+        client = _make_client()
+        with pytest.raises(DevinPermissionError):
+            client.list_sessions(tags=["x"])
+
+
+class TestIsReusable:
+    def _summary(self, **overrides) -> SessionSummary:
+        base = dict(session_id="s", tags=[], status="running", status_detail=None)
+        base.update(overrides)
+        return SessionSummary(**base)
+
+    def test_v3_running_is_reusable(self):
+        assert _make_client().is_reusable(self._summary(status="running"))
+
+    def test_v3_suspended_is_reusable(self):
+        assert _make_client().is_reusable(self._summary(status="suspended"))
+
+    def test_v3_exit_not_reusable(self):
+        assert not _make_client().is_reusable(self._summary(status="exit"))
+
+    def test_v3_running_with_dead_detail_not_reusable(self):
+        s = self._summary(status="running", status_detail="out_of_credits")
+        assert not _make_client().is_reusable(s)
+
+    def test_v1_working_reusable(self):
+        assert _make_client("v1").is_reusable(self._summary(status="working"))
+
+    def test_v1_finished_not_reusable(self):
+        assert not _make_client("v1").is_reusable(self._summary(status="finished"))
+
+
+class TestSendMessage:
+    @responses.activate
+    def test_v3_success(self):
+        responses.add(
+            responses.POST,
+            MESSAGE_URL,
+            json={"session_id": "devin-abc", "status": "running"},
+            status=200,
+        )
+        client = _make_client()
+        client.send_message("devin-abc", "please continue")
+        import json as _json
+        body = _json.loads(responses.calls[0].request.body)
+        assert body == {"message": "please continue"}
+
+    @responses.activate
+    def test_404_raises_session_gone(self):
+        responses.add(responses.POST, MESSAGE_URL, json={"detail": "missing"}, status=404)
+        client = _make_client()
+        with pytest.raises(DevinSessionGoneError):
+            client.send_message("devin-abc", "hi")
+
+    @responses.activate
+    def test_v1_success_null_body(self):
+        responses.add(responses.POST, MESSAGE_URL_V1, body="null", status=200)
+        client = _make_client("v1")
+        client.send_message("devin-abc", "hi")
+
+    @responses.activate
+    def test_v1_suspended_detail_raises_session_gone(self):
+        responses.add(
+            responses.POST,
+            MESSAGE_URL_V1,
+            json={"detail": "session is already suspended"},
+            status=200,
+        )
+        client = _make_client("v1")
+        with pytest.raises(DevinSessionGoneError):
+            client.send_message("devin-abc", "hi")
+
+    @responses.activate
+    def test_500_raises_server_error(self):
+        for _ in range(5):
+            responses.add(responses.POST, MESSAGE_URL, body="oops", status=500)
+        client = _make_client()
+        with pytest.raises(DevinServerError):
+            client.send_message("devin-abc", "hi")

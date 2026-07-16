@@ -110,6 +110,60 @@ class TestUnsupportedEvent:
         assert "unsupported" in (ctx.skip_reason or "")
 
 
+class TestThreadKey:
+    def test_issue_comment_sets_thread_key(self, load_fixture):
+        payload = load_fixture("issue_comment.json")
+        ctx = _extract("issue_comment", payload)
+        assert ctx.thread_key == "knanao/example#42"
+        assert ctx.force_new is False
+
+    def test_review_comment_sets_thread_key(self, load_fixture):
+        payload = load_fixture("pull_request_review_comment.json")
+        ctx = _extract("pull_request_review_comment", payload)
+        assert ctx.thread_key == "knanao/example#12"
+
+    def test_pull_request_sets_thread_key(self, load_fixture):
+        payload = load_fixture("pull_request.json")
+        ctx = _extract("pull_request", payload)
+        assert ctx.thread_key == "knanao/example#12"
+
+    def test_push_has_no_thread_key(self, load_fixture):
+        payload = load_fixture("push.json")
+        ctx = _extract("push", payload)
+        assert ctx.thread_key is None
+
+    def test_check_run_has_no_thread_key(self, load_fixture):
+        payload = load_fixture("check_run.json")
+        ctx = _extract("check_run", payload)
+        assert ctx.thread_key is None
+
+
+class TestForceNew:
+    def test_issue_comment_devin_new_sets_flag_and_strips(self, load_fixture):
+        payload = load_fixture("issue_comment.json")
+        payload["comment"]["body"] = "/devin new redo everything"
+        ctx = _extract("issue_comment", payload)
+        assert not ctx.skip
+        assert ctx.force_new is True
+        assert ctx.user_prompt == "redo everything"
+
+    def test_word_that_starts_with_new_is_not_force_new(self, load_fixture):
+        payload = load_fixture("issue_comment.json")
+        payload["comment"]["body"] = "/devin newsletter improvements"
+        ctx = _extract("issue_comment", payload)
+        assert not ctx.skip
+        assert ctx.force_new is False
+        assert ctx.user_prompt == "newsletter improvements"
+
+    def test_review_comment_devin_new_sets_flag(self, load_fixture):
+        payload = load_fixture("pull_request_review_comment.json")
+        payload["comment"]["body"] = "/devin new please rewrite this"
+        ctx = _extract("pull_request_review_comment", payload)
+        assert not ctx.skip
+        assert ctx.force_new is True
+        assert ctx.user_prompt == "please rewrite this"
+
+
 @pytest.mark.parametrize(
     "body, expected",
     [
