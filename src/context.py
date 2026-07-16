@@ -28,6 +28,7 @@ class SessionContext:
     skip_reason: str | None = None
     thread_key: str | None = None
     force_new: bool = False
+    issue_body: str = ""
 
 
 def _thread_key(repo: str, number: int | None) -> str | None:
@@ -156,6 +157,7 @@ def _from_issue_comment(
         extra_context=extra,
         thread_key=_thread_key(repo, number),
         force_new=force_new,
+        issue_body=issue.get("body") or "",
     )
 
 
@@ -186,6 +188,7 @@ def _from_pull_request(payload: dict[str, Any], repo: str) -> SessionContext:
         user_prompt=f"{title}\n\n{body}".strip(),
         extra_context=extra,
         thread_key=_thread_key(repo, number),
+        issue_body=body,
     )
 
 
