@@ -91,7 +91,12 @@ def _context_block(context: SessionContext) -> str:
     if context.user_login:
         lines.append(f"triggered_by: @{context.user_login}")
     if context.issue_or_pr_number is not None:
-        target = "pr" if context.extra_context.get("is_pull_request") == "true" else "issue"
+        is_pr = (
+            context.event_name
+            in {"pull_request", "pull_request_review_comment", "check_run"}
+            or context.extra_context.get("is_pull_request") == "true"
+        )
+        target = "pr" if is_pr else "issue"
         entry = f"{target}: #{context.issue_or_pr_number}"
         if context.comment_url:
             entry += f" ({context.comment_url})"
@@ -146,8 +151,9 @@ def _progress_reporting_block(context: SessionContext) -> str | None:
 
     return (
         "[Progress Reporting]\n"
-        "Post a Progress Report comment to the originating GitHub issue/PR via "
-        "your GitHub App installation at natural checkpoints:\n"
+        "Post a Progress Report comment to the originating GitHub issue/PR "
+        "(i.e., the same thread that triggered this session) via your GitHub "
+        "App installation at natural checkpoints:\n"
         "  - after you finish a distinct sub-task\n"
         "  - after you push a commit\n"
         "  - when all requested work is complete or you are handing control "
@@ -187,7 +193,7 @@ def _progress_reporting_block(context: SessionContext) -> str | None:
         "**Next steps**\n"
         "<1-3 lines, or \"handing back for feedback\">\n"
         "\n"
-        "**Prior sessions on this PR** (omit this section if none)\n"
+        "**Prior sessions on this thread** (omit this section if none)\n"
         "- <session URL> (progress report at <permalink>)\n"
         "\n"
         "**Session**\n"
@@ -199,6 +205,67 @@ def _progress_reporting_block(context: SessionContext) -> str | None:
         "\n"
         "The marker is required — substitute `<YOUR_SESSION_ID>` with this "
         "session's actual id so future sessions can find this report."
+    )
+
+
+def _pr_lifecycle_block() -> str:
+    """PR Draft/Ready lifecycle directive.
+
+    Applies to any PR Devin creates during the task, regardless of the
+    trigger event, so it is emitted unconditionally.
+    """
+    return (
+        "[PR Lifecycle]\n"
+        "Open every PR you create for this task as a Draft. Keep the PR "
+        "in Draft while you continue to iterate — human review is not "
+        "warranted yet. Convert Draft → Ready for Review (i.e., mark it "
+        "Open for review) only at the moment you judge the task complete "
+        "and want a reviewer to look.\n"
+        "Once you have marked the PR Ready for Review, do NOT flip it "
+        "back to Draft on your own — keep it Ready and continue any "
+        "follow-up work (review feedback, additional fixes) in-place. "
+        "Only a human reviewer's explicit request may return the PR to "
+        "Draft.\n"
+        "Draft state must NOT change any other behavior. Continue posting "
+        "progress reports, UI-verification proof, and other comments "
+        "exactly as instructed above while the PR is Draft — do not "
+        "suppress or defer them because of Draft state."
+    )
+
+
+def _ui_verification_block(context: SessionContext) -> str | None:
+    """Return the UI regression verification instructions, or None when N/A.
+
+    Only relevant when there is a PR/Issue thread — the proof comment must
+    land on a PR, so without one there is nowhere to post it.
+    """
+    if context.issue_or_pr_number is None:
+        return None
+
+    return (
+        "[UI Regression Verification]\n"
+        "This block applies to UI-related fixes only — any change that "
+        "affects rendered UI, layout, styling, or user-facing browser "
+        "behavior. Skip it entirely for non-UI changes (backend-only, "
+        "docs, tests, tooling, etc.).\n"
+        "  1. Before applying the fix, checkout the base ref and reproduce "
+        "the bug using Computer Use in Chrome. Record it as `before.mp4`.\n"
+        "  2. Apply the fix, run the same flow, and record it as "
+        "`after.mp4`.\n"
+        "  3. Post a PR comment via your GitHub App installation containing "
+        "both recordings as proof of task completion. NEVER post this proof "
+        "to a plain issue — it belongs on the PR. If the current trigger is "
+        "a plain issue and no PR exists yet, defer the proof comment until "
+        "you have opened the PR that resolves it, then post there.\n"
+        "     Prefer uploading to GitHub (drag-and-drop asset URL under "
+        "`github.com/<owner>/<repo>/assets/...`) so reviewers without a "
+        "Devin account can view them inline.\n"
+        "\n"
+        "Reuse across sessions: if `before.mp4` for this bug already exists "
+        "from a prior session on this PR (locate it via a prior UI-"
+        "verification proof comment) or from an earlier turn in this same "
+        "session, do NOT re-record it. Skip step 1, reuse the existing "
+        "`before.mp4`, and refresh only `after.mp4` in step 2."
     )
 
 
@@ -234,6 +301,12 @@ def build(
         reporting = _progress_reporting_block(context)
         if reporting:
             sections.append(reporting)
+
+    ui_verification = _ui_verification_block(context)
+    if ui_verification:
+        sections.append(ui_verification)
+
+    sections.append(_pr_lifecycle_block())
 
     sanitized = sanitize_user_input(context.user_prompt)
     sections.append(f"<user_input>\n{sanitized}\n</user_input>")
@@ -275,6 +348,12 @@ def build_continuation(
         reporting = _progress_reporting_block(context)
         if reporting:
             sections.append(reporting)
+
+    ui_verification = _ui_verification_block(context)
+    if ui_verification:
+        sections.append(ui_verification)
+
+    sections.append(_pr_lifecycle_block())
 
     sanitized = sanitize_user_input(context.user_prompt)
     sections.append(f"<user_input>\n{sanitized}\n</user_input>")

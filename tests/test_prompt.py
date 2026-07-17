@@ -286,3 +286,150 @@ class TestProgressReporting:
         assert "minimizeComment" in prompt
         assert "classifier: OUTDATED" in prompt
         assert "session=<YOUR_SESSION_ID>" in prompt
+
+    def test_target_is_originating_thread(self):
+        prompt = prompt_mod.build(_ctx(), report=True)
+        assert "originating GitHub issue/PR" in prompt
+        assert "same thread that triggered this session" in prompt
+        # PR-only wording removed — marker embeds the trigger number, and
+        # scanning the trigger thread must find prior reports for continuity.
+        assert "NEVER post a progress report to a plain issue" not in prompt
+
+    def test_target_is_originating_thread_on_continuation(self):
+        prompt = prompt_mod.build_continuation(_ctx(), report=True)
+        assert "originating GitHub issue/PR" in prompt
+
+
+class TestUIVerification:
+    def test_present_on_build_when_pr_or_issue_context(self):
+        prompt = prompt_mod.build(_ctx())
+        assert "[UI Regression Verification]" in prompt
+        assert "before.mp4" in prompt
+        assert "after.mp4" in prompt
+        assert "Computer Use in Chrome" in prompt
+
+    def test_present_on_continuation_when_pr_or_issue_context(self):
+        prompt = prompt_mod.build_continuation(_ctx())
+        assert "[UI Regression Verification]" in prompt
+        assert "before.mp4" in prompt
+        assert "after.mp4" in prompt
+
+    def test_targets_pr_comment_never_issue(self):
+        prompt = prompt_mod.build(_ctx())
+        assert "Post a PR comment via your GitHub App installation" in prompt
+        assert "NEVER post this proof to a plain issue" in prompt
+
+    def test_prefers_github_native_upload_for_reviewers(self):
+        prompt = prompt_mod.build(_ctx())
+        assert "github.com/<owner>/<repo>/assets/..." in prompt
+        assert "without a Devin account can view them inline" in prompt
+
+    def test_absent_when_no_issue_or_pr_on_build(self):
+        ctx = _ctx(event_name="push", issue_or_pr_number=None, comment_url=None)
+        prompt = prompt_mod.build(ctx)
+        assert "[UI Regression Verification]" not in prompt
+
+    def test_absent_when_no_issue_or_pr_on_continuation(self):
+        ctx = _ctx(event_name="push", issue_or_pr_number=None, comment_url=None)
+        prompt = prompt_mod.build_continuation(ctx)
+        assert "[UI Regression Verification]" not in prompt
+
+    def test_not_gated_by_report_flag(self):
+        # UI verification is independent of the `report` toggle — it must
+        # always be present when there is a PR/Issue context.
+        prompt = prompt_mod.build(_ctx(), report=False)
+        assert "[UI Regression Verification]" in prompt
+
+    def test_reuses_before_mp4_across_sessions(self):
+        # Continuation / re-triggered sessions must not force a wasted
+        # re-record of before.mp4 when it already exists on the PR.
+        prompt = prompt_mod.build(_ctx())
+        assert "Reuse across sessions" in prompt
+        assert "do NOT re-record it" in prompt
+        assert "refresh only `after.mp4`" in prompt
+
+    def test_reuses_before_mp4_on_continuation(self):
+        prompt = prompt_mod.build_continuation(_ctx())
+        assert "Reuse across sessions" in prompt
+        assert "refresh only `after.mp4`" in prompt
+
+
+class TestPRLifecycle:
+    def test_present_on_build(self):
+        prompt = prompt_mod.build(_ctx())
+        assert "[PR Lifecycle]" in prompt
+        assert "Open every PR you create for this task as a Draft" in prompt
+        assert "Convert Draft → Ready for Review" in prompt
+
+    def test_present_on_continuation(self):
+        prompt = prompt_mod.build_continuation(_ctx())
+        assert "[PR Lifecycle]" in prompt
+        assert "Open every PR you create for this task as a Draft" in prompt
+
+    def test_present_even_without_pr_or_issue_context(self):
+        # PR lifecycle applies to any PR Devin creates, even when the
+        # trigger itself has no PR/Issue attached (push / check_run).
+        ctx = _ctx(event_name="push", issue_or_pr_number=None, comment_url=None)
+        assert "[PR Lifecycle]" in prompt_mod.build(ctx)
+        assert "[PR Lifecycle]" in prompt_mod.build_continuation(ctx)
+
+    def test_draft_does_not_suppress_reports(self):
+        prompt = prompt_mod.build(_ctx())
+        assert "Draft state must NOT change any other behavior" in prompt
+        assert (
+            "Continue posting progress reports, UI-verification proof"
+            in prompt
+        )
+
+    def test_not_gated_by_report_flag(self):
+        # PR lifecycle is independent of the `report` toggle.
+        prompt = prompt_mod.build(_ctx(), report=False)
+        assert "[PR Lifecycle]" in prompt
+        prompt = prompt_mod.build(_ctx(), report=True)
+        assert "[PR Lifecycle]" in prompt
+
+    def test_forbids_self_reverting_ready_to_draft(self):
+        prompt = prompt_mod.build(_ctx())
+        assert "do NOT flip it back to Draft on your own" in prompt
+        assert (
+            "Only a human reviewer's explicit request may return the PR to "
+            "Draft."
+        ) in prompt
+
+
+class TestContextBlockPRLabel:
+    def test_pull_request_event_labels_pr(self):
+        ctx = _ctx(event_name="pull_request")
+        prompt = prompt_mod.build(ctx)
+        assert "pr: #42" in prompt
+        assert "issue: #42" not in prompt
+
+    def test_pull_request_review_comment_labels_pr(self):
+        ctx = _ctx(event_name="pull_request_review_comment")
+        prompt = prompt_mod.build(ctx)
+        assert "pr: #42" in prompt
+        assert "issue: #42" not in prompt
+
+    def test_check_run_with_pr_labels_pr(self):
+        ctx = _ctx(event_name="check_run")
+        prompt = prompt_mod.build(ctx)
+        assert "pr: #42" in prompt
+        assert "issue: #42" not in prompt
+
+    def test_issue_comment_on_plain_issue_labels_issue(self):
+        ctx = _ctx(
+            event_name="issue_comment",
+            extra_context={"is_pull_request": "false"},
+        )
+        prompt = prompt_mod.build(ctx)
+        assert "issue: #42" in prompt
+        assert "pr: #42" not in prompt
+
+    def test_issue_comment_on_pr_labels_pr(self):
+        ctx = _ctx(
+            event_name="issue_comment",
+            extra_context={"is_pull_request": "true"},
+        )
+        prompt = prompt_mod.build(ctx)
+        assert "pr: #42" in prompt
+        assert "issue: #42" not in prompt
