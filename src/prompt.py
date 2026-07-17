@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from datetime import UTC, datetime
 
 from .context import SessionContext
 
@@ -133,7 +134,46 @@ def _issue_block(context: SessionContext) -> str | None:
     return f"<issue>\n{inner}\n</issue>"
 
 
-def _progress_reporting_block(context: SessionContext) -> str | None:
+def _iso_utc_now() -> str:
+    """Return the current UTC time as an ISO-8601 string without microseconds."""
+    return datetime.now(UTC).replace(microsecond=0).isoformat()
+
+
+def _elapsed_instruction(session_started_at: str | None) -> str:
+    """Return the '- elapsed since session start:' bullet for the report.
+
+    When `session_started_at` is provided, embed the ISO-8601 timestamp and
+    give Devin a concrete shell one-liner to compute the elapsed HH:MM at
+    report-post time — so it does not have to guess. When absent (e.g., on a
+    reused session whose original start time we do not know), instruct Devin
+    to write `n/a` rather than fabricate a value.
+    """
+    if session_started_at:
+        python_expr = (
+            "from datetime import datetime,timezone;"
+            f"s=datetime.fromisoformat('{session_started_at}');"
+            "d=int((datetime.now(timezone.utc)-s).total_seconds());"
+            "print(f'{d//3600:02d}:{(d%3600)//60:02d}')"
+        )
+        return (
+            f"- elapsed since session start (started at {session_started_at}): "
+            f"at the moment you post this report, run "
+            f"`python3 -c \"{python_expr}\"` "
+            "and paste the resulting HH:MM value verbatim. "
+            "Do NOT estimate — if the command fails, write `n/a`.\n"
+        )
+    return (
+        "- elapsed since session start: `n/a` "
+        "(the original session start time is unknown to this trigger; "
+        "do NOT estimate).\n"
+    )
+
+
+def _progress_reporting_block(
+    context: SessionContext,
+    *,
+    session_started_at: str | None = None,
+) -> str | None:
     """Return the [Progress Reporting] instructions, or None when N/A.
 
     The block only makes sense when there is a PR/Issue thread to post to.
@@ -197,8 +237,8 @@ def _progress_reporting_block(context: SessionContext) -> str | None:
         "- <session URL> (progress report at <permalink>)\n"
         "\n"
         "**Session**\n"
-        "- elapsed since session start: <hh:mm or n/a>\n"
-        "- ACU used so far: <value or n/a>\n"
+        + _elapsed_instruction(session_started_at)
+        + "- ACU used so far: <value or n/a>\n"
         "- session URL: <this session's URL>\n"
         "\n"
         f"{marker}\n"
@@ -274,8 +314,17 @@ def build(
     *,
     additional_instructions: str = "",
     report: bool = False,
+    session_started_at: str | None = None,
 ) -> str:
-    """Assemble the final prompt string sent to Devin."""
+    """Assemble the final prompt string sent to Devin.
+
+    `session_started_at` is an ISO-8601 UTC timestamp embedded into the
+    progress-report template so Devin can compute elapsed time from a
+    concrete anchor instead of guessing. Defaults to the wall-clock at
+    prompt-build time (≈ session-create time on the API side).
+    """
+    if session_started_at is None:
+        session_started_at = _iso_utc_now()
     operator = (
         "[Operator Instructions]\n"
         f"You are invoked from a GitHub Action for {context.repo}.\n"
@@ -298,7 +347,9 @@ def build(
         sections.append(f"[Additional Instructions]\n{extra}")
 
     if report:
-        reporting = _progress_reporting_block(context)
+        reporting = _progress_reporting_block(
+            context, session_started_at=session_started_at
+        )
         if reporting:
             sections.append(reporting)
 
@@ -319,12 +370,18 @@ def build_continuation(
     *,
     additional_instructions: str = "",
     report: bool = False,
+    session_started_at: str | None = None,
 ) -> str:
     """Prompt for a follow-up message to an existing session.
 
     Skips the operator preamble (already established in the initial session)
     but keeps the untrusted-input wrapper, the fresh event context, and the
     issue/PR title+body so reused sessions still receive it.
+
+    `session_started_at` should be the ORIGINAL session's start time when
+    known (so elapsed spans the full session, not just this follow-up
+    trigger). Leave as None if the original start is unknown — the report
+    template will then instruct Devin to write `n/a` rather than guess.
     """
     header = (
         "[Continuation]\n"
@@ -345,7 +402,9 @@ def build_continuation(
         sections.append(f"[Additional Instructions]\n{extra}")
 
     if report:
-        reporting = _progress_reporting_block(context)
+        reporting = _progress_reporting_block(
+            context, session_started_at=session_started_at
+        )
         if reporting:
             sections.append(reporting)
 
