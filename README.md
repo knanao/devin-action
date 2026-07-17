@@ -9,8 +9,7 @@ triggers and conditions you control from your own workflow file.
 
 ## Authentication
 
-This action does **not** pass any GitHub token to Devin. Devin authenticates
-against your repository via its own official GitHub App installation, so make
+Devin authenticates against your repository via its own official GitHub App installation, so make
 sure the Devin GitHub App is installed and granted access to the target
 repositories in your organization. The action itself only talks to the Devin
 API — no GitHub token, PAT, or App credentials need to be supplied.

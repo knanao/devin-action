@@ -299,6 +299,49 @@ class TestProgressReporting:
         prompt = prompt_mod.build_continuation(_ctx(), report=True)
         assert "originating GitHub issue/PR" in prompt
 
+    def test_elapsed_embeds_session_started_at_on_build(self):
+        ts = "2026-07-17T05:07:24+00:00"
+        prompt = prompt_mod.build(
+            _ctx(), report=True, session_started_at=ts
+        )
+        # The exact ISO timestamp is embedded so Devin has a concrete anchor.
+        assert f"started at {ts}" in prompt
+        # A concrete shell command is provided — Devin should not guess.
+        assert "python3 -c" in prompt
+        assert f"datetime.fromisoformat('{ts}')" in prompt
+        assert "HH:MM value verbatim" in prompt
+        assert "Do NOT estimate" in prompt
+        # The old free-form placeholder must be gone.
+        assert "<hh:mm or n/a>" not in prompt
+
+    def test_elapsed_defaults_to_wall_clock_on_build(self):
+        # When no explicit timestamp is passed, build() stamps one so the
+        # elapsed line is never left as an unbound guess.
+        prompt = prompt_mod.build(_ctx(), report=True)
+        assert "python3 -c" in prompt
+        assert "datetime.fromisoformat(" in prompt
+        assert "<hh:mm or n/a>" not in prompt
+
+    def test_elapsed_falls_back_to_n_a_on_continuation(self):
+        # We do not know the ORIGINAL session's start time on a follow-up
+        # trigger, so the template must instruct Devin to write n/a rather
+        # than fabricate a value.
+        prompt = prompt_mod.build_continuation(_ctx(), report=True)
+        assert "elapsed since session start: `n/a`" in prompt
+        assert "do NOT estimate" in prompt
+        assert "python3 -c" not in prompt
+
+    def test_elapsed_uses_explicit_timestamp_on_continuation(self):
+        # When the caller can supply the original session's created_at
+        # (e.g., via list_sessions), the continuation prompt should embed
+        # it and give Devin the shell one-liner.
+        ts = "2026-07-16T22:00:00+00:00"
+        prompt = prompt_mod.build_continuation(
+            _ctx(), report=True, session_started_at=ts
+        )
+        assert f"started at {ts}" in prompt
+        assert f"datetime.fromisoformat('{ts}')" in prompt
+
 
 class TestUIVerification:
     def test_present_on_build_when_pr_or_issue_context(self):
