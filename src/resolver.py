@@ -7,9 +7,12 @@ the Devin list-sessions API and pick the most recent still-live one.
 
 from __future__ import annotations
 
-import sys
+from typing import TYPE_CHECKING
 
-from .devin_client import DevinClient, SessionSummary
+from . import logging_utils
+
+if TYPE_CHECKING:
+    from .devin_client import DevinClient, SessionSummary
 
 THREAD_TAG_PREFIX = "devin-action:thread:"
 
@@ -38,14 +41,13 @@ def find_reusable_session(
     tag = thread_tag(thread_key)
     try:
         candidates = client.list_sessions(tags=[tag], limit=limit)
-    except Exception as exc:  # noqa: BLE001 — resolver must never break creation flow
-        # Surface the failure so users can debug, but keep the caller alive to
-        # fall back to creating a new session.
-        print(
-            f"::warning::Session lookup failed ({exc.__class__.__name__}: {exc}); "
-            "creating a new session instead.",
-            flush=True,
-            file=sys.stderr,
+    except Exception as exc:
+        # Resolver must never break the creation flow. Surface the failure so
+        # users can debug, but keep the caller alive to fall back to creating
+        # a new session.
+        logging_utils.warning(
+            f"Session lookup failed ({exc.__class__.__name__}: {exc}); "
+            "creating a new session instead."
         )
         return None
 

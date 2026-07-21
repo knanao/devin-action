@@ -1,9 +1,39 @@
+[project]
+name = "devin-action"
+version = "0.5.0"
+description = "GitHub Action that spawns a Devin session from repository events."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.14"
+dependencies = [
+    "requests>=2.34,<3",
+    "urllib3>=2.7,<3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "responses",
+    "ruff",
+]
+
 [tool.ruff]
 line-length = 100
-target-version = "py312"
+target-version = "py314"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM"]
+select = [
+    "E",
+    "F",
+    "I",
+    "UP",
+    "B",
+    "SIM",
+    "RUF",
+    "PLE",
+    "RSE",
+    "TCH",
+]
 ignore = ["E501"]
 
 [tool.pytest.ini_options]

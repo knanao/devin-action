@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import functools
 import re
 import unicodedata
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
-from .context import SessionContext
+if TYPE_CHECKING:
+    from .context import SessionContext
 
 MAX_USER_INPUT_BYTES = 16 * 1024
 TRUNCATION_SUFFIX = "\n[truncated]"
@@ -30,25 +33,21 @@ DISCUSSION_INSTRUCTION = (
 
 _ZERO_WIDTH_AND_CONTROL = re.compile(
     "["
-    "\x00-\x08"          # C0 controls except \t \n
-    "\x0b\x0c"           # keep \n (\x0a) and \r (\x0d) — \r handled separately
+    "\x00-\x08"        # C0 controls except \t \n
+    "\x0b\x0c"         # keep \n (\x0a) and \r (\x0d) - \r handled separately
     "\x0e-\x1f"
-    "\x7f-\x9f"          # DEL + C1 controls
-    "​-‏"      # zero-width spaces + LTR/RTL marks
-    "‪-‮"      # bidi overrides
-    "⁠-⁤"      # word joiner + invisible ops
-    "﻿"             # BOM / zero-width no-break space
+    "\x7f-\x9f"        # DEL + C1 controls
+    "\u200b-\u200f"    # zero-width spaces + LTR/RTL marks
+    "\u202a-\u202e"    # bidi overrides
+    "\u2060-\u2064"    # word joiner + invisible operators
+    "\ufeff"            # BOM / zero-width no-break space
     "]"
 )
-_CLOSING_TAG_CACHE: dict[str, re.Pattern[str]] = {}
 
 
+@functools.cache
 def _closing_tag_pattern(tag: str) -> re.Pattern[str]:
-    pat = _CLOSING_TAG_CACHE.get(tag)
-    if pat is None:
-        pat = re.compile(rf"</\s*{re.escape(tag)}\s*>", re.IGNORECASE)
-        _CLOSING_TAG_CACHE[tag] = pat
-    return pat
+    return re.compile(rf"</\s*{re.escape(tag)}\s*>", re.IGNORECASE)
 
 
 def sanitize_user_input(
@@ -139,24 +138,42 @@ def _iso_utc_now() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat()
 
 
+def _normalize_iso_timestamp(raw: str | None) -> str | None:
+    """Validate and canonicalize an ISO-8601 timestamp.
+
+    Returns the normalized ISO string when parseable, or None when `raw` is
+    None/empty/invalid. Callers should treat None as "no anchor" and fall back
+    to `n/a` rather than embedding unvalidated text into the shell one-liner
+    that Devin runs at report-post time.
+    """
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except (TypeError, ValueError):
+        return None
+    return parsed.isoformat()
+
+
 def _elapsed_instruction(session_started_at: str | None) -> str:
     """Return the '- elapsed since session start:' bullet for the report.
 
-    When `session_started_at` is provided, embed the ISO-8601 timestamp and
-    give Devin a concrete shell one-liner to compute the elapsed HH:MM at
-    report-post time — so it does not have to guess. When absent (e.g., on a
-    reused session whose original start time we do not know), instruct Devin
-    to write `n/a` rather than fabricate a value.
+    When `session_started_at` is provided and parses as ISO-8601, embed the
+    normalized timestamp and give Devin a concrete shell one-liner to compute
+    the elapsed HH:MM at report-post time — so it does not have to guess. When
+    absent or invalid, instruct Devin to write `n/a` rather than fabricate
+    a value (and never inject raw untrusted text into the one-liner).
     """
-    if session_started_at:
+    normalized = _normalize_iso_timestamp(session_started_at)
+    if normalized:
         python_expr = (
             "from datetime import datetime,timezone;"
-            f"s=datetime.fromisoformat('{session_started_at}');"
+            f"s=datetime.fromisoformat('{normalized}');"
             "d=int((datetime.now(timezone.utc)-s).total_seconds());"
             "print(f'{d//3600:02d}:{(d%3600)//60:02d}')"
         )
         return (
-            f"- elapsed since session start (started at {session_started_at}): "
+            f"- elapsed since session start (started at {normalized}): "
             f"at the moment you post this report, run "
             f"`python3 -c \"{python_expr}\"` "
             "and paste the resulting HH:MM value verbatim. "
@@ -309,6 +326,45 @@ def _ui_verification_block(context: SessionContext) -> str | None:
     )
 
 
+def _append_shared_sections(
+    sections: list[str],
+    context: SessionContext,
+    *,
+    additional_instructions: str,
+    report: bool,
+    session_started_at: str | None,
+) -> None:
+    """Append the sections shared by build() and build_continuation().
+
+    Order (kept identical between the two entry points): <issue> block,
+    [Additional Instructions], [Progress Reporting] (when report=True),
+    [UI Regression Verification], [PR Lifecycle], <user_input>.
+    """
+    issue_block = _issue_block(context)
+    if issue_block:
+        sections.append(issue_block)
+
+    extra = (additional_instructions or "").strip()
+    if extra:
+        sections.append(f"[Additional Instructions]\n{extra}")
+
+    if report:
+        reporting = _progress_reporting_block(
+            context, session_started_at=session_started_at
+        )
+        if reporting:
+            sections.append(reporting)
+
+    ui_verification = _ui_verification_block(context)
+    if ui_verification:
+        sections.append(ui_verification)
+
+    sections.append(_pr_lifecycle_block())
+
+    sanitized = sanitize_user_input(context.user_prompt)
+    sections.append(f"<user_input>\n{sanitized}\n</user_input>")
+
+
 def build(
     context: SessionContext,
     *,
@@ -337,31 +393,13 @@ def build(
     )
 
     sections: list[str] = [operator, f"[Context]\n{_context_block(context)}"]
-
-    issue_block = _issue_block(context)
-    if issue_block:
-        sections.append(issue_block)
-
-    extra = (additional_instructions or "").strip()
-    if extra:
-        sections.append(f"[Additional Instructions]\n{extra}")
-
-    if report:
-        reporting = _progress_reporting_block(
-            context, session_started_at=session_started_at
-        )
-        if reporting:
-            sections.append(reporting)
-
-    ui_verification = _ui_verification_block(context)
-    if ui_verification:
-        sections.append(ui_verification)
-
-    sections.append(_pr_lifecycle_block())
-
-    sanitized = sanitize_user_input(context.user_prompt)
-    sections.append(f"<user_input>\n{sanitized}\n</user_input>")
-
+    _append_shared_sections(
+        sections,
+        context,
+        additional_instructions=additional_instructions,
+        report=report,
+        session_started_at=session_started_at,
+    )
     return "\n\n".join(sections)
 
 
@@ -392,29 +430,11 @@ def build_continuation(
     )
 
     sections: list[str] = [header, f"[Context]\n{_context_block(context)}"]
-
-    issue_block = _issue_block(context)
-    if issue_block:
-        sections.append(issue_block)
-
-    extra = (additional_instructions or "").strip()
-    if extra:
-        sections.append(f"[Additional Instructions]\n{extra}")
-
-    if report:
-        reporting = _progress_reporting_block(
-            context, session_started_at=session_started_at
-        )
-        if reporting:
-            sections.append(reporting)
-
-    ui_verification = _ui_verification_block(context)
-    if ui_verification:
-        sections.append(ui_verification)
-
-    sections.append(_pr_lifecycle_block())
-
-    sanitized = sanitize_user_input(context.user_prompt)
-    sections.append(f"<user_input>\n{sanitized}\n</user_input>")
-
+    _append_shared_sections(
+        sections,
+        context,
+        additional_instructions=additional_instructions,
+        report=report,
+        session_started_at=session_started_at,
+    )
     return "\n\n".join(sections)

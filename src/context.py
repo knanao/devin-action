@@ -92,6 +92,34 @@ def _association_allowed(association: str | None, allowed: list[str]) -> bool:
     return (association or "").upper() in {a.upper() for a in allowed}
 
 
+def _parse_command(
+    *,
+    body: str,
+    author_association: str | None,
+    event_name: str,
+    repo: str,
+    prompt_prefix: str,
+    allowed_associations: list[str],
+    prefix_skip_reason: str,
+) -> tuple[str, bool] | SessionContext:
+    """Common prefix / association / force-new parsing for comment events.
+
+    Returns ``(prompt_body, force_new)`` when the comment is a valid trigger,
+    or a skipped ``SessionContext`` describing why it was ignored. Callers
+    should ``isinstance(result, SessionContext)`` before unpacking.
+    """
+    prompt_body = _match_prefix(body, prompt_prefix)
+    if prompt_body is None:
+        return _skipped(event_name, repo, prefix_skip_reason)
+    if not _association_allowed(author_association, allowed_associations):
+        return _skipped(
+            event_name,
+            repo,
+            f"author_association {author_association!r} not allowed",
+        )
+    return _split_force_new(prompt_body)
+
+
 def extract(
     event_name: str,
     payload: dict[str, Any],
@@ -103,18 +131,20 @@ def extract(
     if event_name not in SUPPORTED_EVENTS:
         return _skipped(event_name, repo, f"unsupported event: {event_name}")
 
-    if event_name == "issue_comment":
-        return _from_issue_comment(payload, repo, prompt_prefix, allowed_associations)
-    if event_name == "pull_request":
-        return _from_pull_request(payload, repo)
-    if event_name == "pull_request_review_comment":
-        return _from_review_comment(payload, repo, prompt_prefix, allowed_associations)
-    if event_name == "push":
-        return _from_push(payload, repo)
-    if event_name == "check_run":
-        return _from_check_run(payload, repo)
-
-    return _skipped(event_name, repo, f"unhandled event: {event_name}")
+    match event_name:
+        case "issue_comment":
+            return _from_issue_comment(payload, repo, prompt_prefix, allowed_associations)
+        case "pull_request":
+            return _from_pull_request(payload, repo)
+        case "pull_request_review_comment":
+            return _from_review_comment(payload, repo, prompt_prefix, allowed_associations)
+        case "push":
+            return _from_push(payload, repo)
+        case "check_run":
+            return _from_check_run(payload, repo)
+        case _:
+            # SUPPORTED_EVENTS のガードで到達不能。type checker のために明示。
+            raise AssertionError(f"unhandled supported event: {event_name}")
 
 
 def _from_issue_comment(
@@ -125,20 +155,19 @@ def _from_issue_comment(
 ) -> SessionContext:
     comment = payload.get("comment") or {}
     issue = payload.get("issue") or {}
-    body = comment.get("body", "") or ""
 
-    prompt_body = _match_prefix(body, prompt_prefix)
-    if prompt_body is None:
-        return _skipped("issue_comment", repo, "comment does not start with prompt prefix")
-
-    if not _association_allowed(comment.get("author_association"), allowed_associations):
-        return _skipped(
-            "issue_comment",
-            repo,
-            f"author_association {comment.get('author_association')!r} not allowed",
-        )
-
-    prompt_body, force_new = _split_force_new(prompt_body)
+    parsed = _parse_command(
+        body=comment.get("body", "") or "",
+        author_association=comment.get("author_association"),
+        event_name="issue_comment",
+        repo=repo,
+        prompt_prefix=prompt_prefix,
+        allowed_associations=allowed_associations,
+        prefix_skip_reason="comment does not start with prompt prefix",
+    )
+    if isinstance(parsed, SessionContext):
+        return parsed
+    prompt_body, force_new = parsed
 
     number = issue.get("number")
     user_login = (comment.get("user") or {}).get("login", "")
@@ -203,24 +232,19 @@ def _from_review_comment(
 ) -> SessionContext:
     comment = payload.get("comment") or {}
     pr = payload.get("pull_request") or {}
-    body = comment.get("body", "") or ""
 
-    prompt_body = _match_prefix(body, prompt_prefix)
-    if prompt_body is None:
-        return _skipped(
-            "pull_request_review_comment",
-            repo,
-            "review comment does not start with prompt prefix",
-        )
-
-    if not _association_allowed(comment.get("author_association"), allowed_associations):
-        return _skipped(
-            "pull_request_review_comment",
-            repo,
-            f"author_association {comment.get('author_association')!r} not allowed",
-        )
-
-    prompt_body, force_new = _split_force_new(prompt_body)
+    parsed = _parse_command(
+        body=comment.get("body", "") or "",
+        author_association=comment.get("author_association"),
+        event_name="pull_request_review_comment",
+        repo=repo,
+        prompt_prefix=prompt_prefix,
+        allowed_associations=allowed_associations,
+        prefix_skip_reason="review comment does not start with prompt prefix",
+    )
+    if isinstance(parsed, SessionContext):
+        return parsed
+    prompt_body, force_new = parsed
 
     number = pr.get("number")
     user_login = (comment.get("user") or {}).get("login", "")
