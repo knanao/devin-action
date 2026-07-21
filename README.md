@@ -53,6 +53,10 @@ jobs:
 A more complete example covering PRs, review comments, and failing checks lives
 in [`examples/devin.yml`](examples/devin.yml).
 
+For a live sample of how this action is wired up in an actual repository —
+including the issues it triggers on — see
+[knanao/superset issues](https://github.com/knanao/superset/issues).
+
 ## Inputs
 
 | name | required | default | description |
@@ -144,7 +148,7 @@ Tune `allowed-associations` to your project's threat model.
 
 ## Development
 
-Requires Python 3.12.
+Requires Python 3.14.
 
 ```
 pip install -r requirements-dev.txt

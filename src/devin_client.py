@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import Any, NoReturn
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -257,13 +257,11 @@ class DevinClient:
                 raise DevinServerError(status, "response missing session_id")
             return SessionResult(session_id=session_id, url=session_url, raw=data)
         self._raise_for_status(response)
-        # unreachable — _raise_for_status always raises for non-2xx
-        raise DevinServerError(status, "unreachable")
 
-    def _raise_for_status(self, response: requests.Response) -> None:
+    def _raise_for_status(self, response: requests.Response) -> NoReturn:
         status = response.status_code
         if status == 401:
-            raise DevinAuthError()
+            raise DevinAuthError
         if status == 403:
             raise DevinPermissionError(self._org_id)
         if status == 404:
@@ -271,7 +269,7 @@ class DevinClient:
         if status == 422:
             raise DevinValidationError(self._extract_422_detail(response))
         if status == 429:
-            raise DevinRateLimitError()
+            raise DevinRateLimitError
         raise DevinServerError(status, _truncate(response.text, 500))
 
     def _parse_session_list(self, data: dict[str, Any]) -> list[SessionSummary]:
@@ -334,6 +332,8 @@ class DevinClient:
 def _to_ts(value: Any) -> int:
     if value is None:
         return 0
+    # bool is a subclass of int; guard it before the int/float branch so that
+    # True/False are not silently coerced into timestamps 1/0.
     if isinstance(value, bool):
         return 0
     if isinstance(value, int | float):

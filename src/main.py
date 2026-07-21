@@ -6,10 +6,12 @@ import json
 import os
 import sys
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from . import context as context_mod
+from . import logging_utils
 from . import prompt as prompt_mod
 from . import resolver as resolver_mod
 from .devin_client import (
@@ -20,25 +22,10 @@ from .devin_client import (
 )
 from .errors import (
     DevinActionError,
-    DevinAPIError,
     DevinSessionGoneError,
     InvalidInputError,
     MissingInputError,
 )
-
-
-def _log(message: str) -> None:
-    print(message, flush=True)
-
-
-def _error(message: str) -> None:
-    print(f"::error::{message}", flush=True, file=sys.stderr)
-
-
-def _mask(value: str) -> None:
-    if not value:
-        return
-    print(f"::add-mask::{value}", flush=True)
 
 
 def _required(name: str) -> str:
@@ -98,7 +85,7 @@ def _write_outputs(**outputs: str) -> None:
     output_path = os.environ.get("GITHUB_OUTPUT")
     if not output_path:
         for key, value in outputs.items():
-            _log(f"[output] {key}={value}")
+            logging_utils.info(f"[output] {key}={value}")
         return
     with Path(output_path).open("a", encoding="utf-8") as fh:
         for key, value in outputs.items():
@@ -110,7 +97,7 @@ def _write_outputs(**outputs: str) -> None:
 
 
 def _emit_skip(reason: str) -> int:
-    _log(f"Skipping: {reason}")
+    logging_utils.info(f"Skipping: {reason}")
     _write_outputs(
         **{
             "session-id": "",
@@ -133,47 +120,86 @@ def _emit_success(*, session_id: str, url: str, reused: bool) -> None:
     )
 
 
+@dataclass(frozen=True)
+class ActionConfig:
+    """Parsed action inputs. Constructed once at the top of run()."""
+
+    api_key: str
+    org_id: str
+    prompt_prefix: str
+    additional_instructions: str
+    devin_mode: str
+    max_acu_limit: int | None
+    tags: list[str]
+    playbook_id: str | None
+    allowed_associations: list[str]
+    api_version: str
+    session_reuse: bool
+    report: bool
+
+
+def _load_config() -> ActionConfig:
+    """Read all INPUT_* environment variables and return a validated config.
+
+    Raises MissingInputError / InvalidInputError; callers should convert those
+    into an error line + exit code.
+    """
+    api_key = _required("devin-api-key")
+    org_id = _required("devin-org-id")
+
+    prompt_prefix = _optional("prompt-prefix", "/devin")
+    additional_instructions = _optional("additional-instructions", "")
+    devin_mode = _optional("devin-mode", "normal")
+    max_acu_limit = _int_or_none("max-acu-limit")
+    tags = _list("tags", "github-action")
+    playbook_id = _optional("playbook-id", "") or None
+    allowed_associations = _list("allowed-associations", "OWNER,MEMBER,COLLABORATOR")
+    api_version = _optional("api-version", DEFAULT_API_VERSION)
+    if api_version not in SUPPORTED_API_VERSIONS:
+        raise InvalidInputError(
+            "api-version",
+            f"must be one of {', '.join(SUPPORTED_API_VERSIONS)}",
+        )
+    session_reuse = _bool("session-reuse", True)
+    report = _bool("report", False)
+
+    return ActionConfig(
+        api_key=api_key,
+        org_id=org_id,
+        prompt_prefix=prompt_prefix,
+        additional_instructions=additional_instructions,
+        devin_mode=devin_mode,
+        max_acu_limit=max_acu_limit,
+        tags=tags,
+        playbook_id=playbook_id,
+        allowed_associations=allowed_associations,
+        api_version=api_version,
+        session_reuse=session_reuse,
+        report=report,
+    )
+
+
 def run() -> int:
     try:
-        api_key = _required("devin-api-key")
-        org_id = _required("devin-org-id")
+        config = _load_config()
     except MissingInputError as exc:
-        _error(exc.user_message())
+        logging_utils.error(exc.user_message())
         return 1
-
-    _mask(api_key)
-
-    try:
-        prompt_prefix = _optional("prompt-prefix", "/devin")
-        additional_instructions = _optional("additional-instructions", "")
-        devin_mode = _optional("devin-mode", "normal")
-        max_acu_limit = _int_or_none("max-acu-limit")
-        tags = _list("tags", "github-action")
-        playbook_id = _optional("playbook-id", "") or None
-        allowed_associations = _list(
-            "allowed-associations", "OWNER,MEMBER,COLLABORATOR"
-        )
-        api_version = _optional("api-version", DEFAULT_API_VERSION)
-        if api_version not in SUPPORTED_API_VERSIONS:
-            raise InvalidInputError(
-                "api-version",
-                f"must be one of {', '.join(SUPPORTED_API_VERSIONS)}",
-            )
-        session_reuse = _bool("session-reuse", True)
-        report = _bool("report", False)
     except InvalidInputError as exc:
-        _error(exc.user_message())
+        logging_utils.error(exc.user_message())
         return 1
+
+    logging_utils.mask(config.api_key)
 
     event_name = os.environ.get("GITHUB_EVENT_NAME", "")
     repo = os.environ.get("GITHUB_REPOSITORY", "")
     event_path = os.environ.get("GITHUB_EVENT_PATH")
 
     if not event_name:
-        _error("GITHUB_EVENT_NAME is not set")
+        logging_utils.error("GITHUB_EVENT_NAME is not set")
         return 1
     if not repo:
-        _error("GITHUB_REPOSITORY is not set")
+        logging_utils.error("GITHUB_REPOSITORY is not set")
         return 1
 
     payload = _load_event_payload(event_path)
@@ -183,26 +209,28 @@ def run() -> int:
             event_name,
             payload,
             repo,
-            prompt_prefix=prompt_prefix,
-            allowed_associations=allowed_associations,
+            prompt_prefix=config.prompt_prefix,
+            allowed_associations=config.allowed_associations,
         )
-    except Exception as exc:  # noqa: BLE001 — payload malformed
-        _error(f"Failed to parse event payload: {exc}")
+    except Exception as exc:
+        # Payload is untrusted GitHub webhook JSON; convert any parse failure
+        # into a user-facing error rather than a stack trace.
+        logging_utils.error(f"Failed to parse event payload: {exc}")
         return 1
 
     if ctx.skip:
         return _emit_skip(ctx.skip_reason or "context extractor requested skip")
 
-    client = DevinClient(api_key, org_id, api_version=api_version)
+    client = DevinClient(config.api_key, config.org_id, api_version=config.api_version)
 
     try:
-        if _should_try_reuse(ctx, session_reuse):
+        if _should_try_reuse(ctx, config.session_reuse):
             reused = _try_send_to_existing(
-                client, ctx, additional_instructions, report=report
+                client, ctx, config.additional_instructions, report=config.report
             )
             if reused is not None:
                 session_id, session_url = reused
-                _log(
+                logging_utils.info(
                     f"Devin session reused: {session_id}"
                     + (f" ({session_url})" if session_url else "")
                 )
@@ -212,21 +240,19 @@ def run() -> int:
         result = _create_new_session(
             client,
             ctx,
-            additional_instructions=additional_instructions,
-            tags=tags,
-            devin_mode=devin_mode,
-            max_acu_limit=max_acu_limit,
-            playbook_id=playbook_id,
-            report=report,
+            additional_instructions=config.additional_instructions,
+            tags=config.tags,
+            devin_mode=config.devin_mode,
+            max_acu_limit=config.max_acu_limit,
+            playbook_id=config.playbook_id,
+            report=config.report,
         )
-    except DevinAPIError as exc:
-        _error(exc.user_message())
-        return 1
     except DevinActionError as exc:
-        _error(exc.user_message())
+        # Covers both DevinAPIError (subclass) and any other action-level error.
+        logging_utils.error(exc.user_message())
         return 1
 
-    _log(f"Devin session created: {result.session_id} ({result.url})")
+    logging_utils.info(f"Devin session created: {result.session_id} ({result.url})")
     _emit_success(session_id=result.session_id, url=result.url, reused=False)
     return 0
 
@@ -266,7 +292,9 @@ def _try_send_to_existing(
     try:
         client.send_message(session_id, message)
     except DevinSessionGoneError as exc:
-        _log(f"Reusable session {session_id} rejected message ({exc.reason}); creating new.")
+        logging_utils.info(
+            f"Reusable session {session_id} rejected message ({exc.reason}); creating new."
+        )
         return None
 
     return session_id, _session_url_for(session_id)

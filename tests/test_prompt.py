@@ -33,7 +33,7 @@ class TestSanitize:
         assert "<\\/user_input>" in cleaned
 
     def test_strips_zero_width_and_control(self):
-        raw = "he​llo\x1bworld"
+        raw = "he\u200bllo\x07\x1bworld"
         cleaned = prompt_mod.sanitize_user_input(raw)
         assert cleaned == "helloworld"
 
