@@ -143,7 +143,8 @@ def extract(
         case "check_run":
             return _from_check_run(payload, repo)
         case _:
-            # SUPPORTED_EVENTS のガードで到達不能。type checker のために明示。
+            # Unreachable: guarded by the SUPPORTED_EVENTS check above. Kept
+            # explicit so the type checker sees the match is exhaustive.
             raise AssertionError(f"unhandled supported event: {event_name}")
 
 

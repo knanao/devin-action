@@ -182,10 +182,7 @@ def _load_config() -> ActionConfig:
 def run() -> int:
     try:
         config = _load_config()
-    except MissingInputError as exc:
-        logging_utils.error(exc.user_message())
-        return 1
-    except InvalidInputError as exc:
+    except (MissingInputError, InvalidInputError) as exc:
         logging_utils.error(exc.user_message())
         return 1
 
