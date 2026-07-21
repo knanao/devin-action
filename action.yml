@@ -65,7 +65,7 @@ outputs:
 
 runs:
   using: 'docker'
-  image: 'docker://ghcr.io/knanao/devin-action:v0.5.0'
+  image: 'docker://ghcr.io/knanao/devin-action:v0.5.1'
   env:
     INPUT_DEVIN_API_KEY: ${{ inputs.devin-api-key }}
     INPUT_DEVIN_ORG_ID: ${{ inputs.devin-org-id }}

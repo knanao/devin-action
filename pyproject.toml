@@ -1,6 +1,6 @@
 [project]
 name = "devin-action"
-version = "0.5.0"
+version = "0.5.1"
 description = "GitHub Action that spawns a Devin session from repository events."
 readme = "README.md"
 license = { file = "LICENSE" }
